@@ -259,6 +259,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         selectedAccount: '',
         showAccountFilter: false,
 
+        // Time range filter
+        selectedTimeRange: 'last_12_months',
+        showTimeRangeFilter: false,
+
         // Dashboard data
         monthlyExpenses: 0,
         monthlyIncome: 0,
@@ -371,6 +375,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         return accounts.sort();
       },
 
+      // Time range options
+      timeRangeOptions() {
+        return [
+          { value: 'this_month', label: 'Deze maand' },
+          { value: 'last_month', label: 'Vorige maand' },
+          { value: 'last_6_months', label: 'Laatste 6 maanden' },
+          { value: 'last_12_months', label: 'Laatste 12 maanden' }
+        ];
+      },
+
+      // Check if we should use compact table mode (12 months)
+      isCompactTableMode() {
+        return this.selectedTimeRange === 'last_12_months' &&
+               (this.incomeData?.months?.length === 12 || this.expenseData?.months?.length === 12);
+      },
+
+      // Category statistics for insights table
+      categoryStatistics() {
+        return this.getCategoryStatistics();
+      },
+
       // Left and right category groups for dashboard
       leftCategoryGroups() {
         const groups = this.groupTransactionsByCategory();
@@ -396,6 +421,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (this.incomeExpenseChart) {
         this.incomeExpenseChart.destroy();
+      }
+      if (this.accountBalanceChart) {
+        this.accountBalanceChart.destroy();
       }
     },
 
@@ -518,6 +546,63 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.showAccountFilter = false;
         // Reset selected transactions when changing account filter
         this.selectedTransactions = [];
+
+        // Refresh data when account filter changes
+        if (this.currentPage === 'insights') {
+          this.updateInsightsData();
+        } else if (this.currentPage === 'details') {
+          // Force update of computed properties
+          this.$forceUpdate();
+        }
+      },
+
+      setSelectedTimeRange(timeRange) {
+        this.selectedTimeRange = timeRange;
+        this.showTimeRangeFilter = false;
+
+        // Refresh data when time range changes
+        if (this.currentPage === 'insights') {
+          this.updateInsightsData();
+        } else if (this.currentPage === 'details') {
+          // Force update of computed properties
+          this.$forceUpdate();
+        }
+      },
+
+      getTimeRangeFilter() {
+        const now = new Date();
+        let startDate, endDate;
+
+        switch (this.selectedTimeRange) {
+          case 'this_month':
+            // Deze maand: van begin huidige maand tot vandaag
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+            break;
+          case 'last_month':
+            // Vorige maand: volledige vorige maand
+            const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+            endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0, 23, 59, 59);
+            break;
+          case 'last_6_months':
+            startDate = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+            break;
+          case 'last_12_months':
+          default:
+            startDate = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+            break;
+        }
+
+        return { startDate, endDate };
+      },
+
+      // Truncate category names for compact display
+      truncateCategoryName(name, maxLength = 15) {
+        if (!name) return '';
+        return name.length > maxLength ? name.substring(0, maxLength) + '...' : name;
       },
 
       refreshDetailsData() {
@@ -610,11 +695,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
 
       getCategoryMonthlyData() {
-        // Get last 6 months
-        const months = [];
         const now = new Date();
+        const timeRangeFilter = this.getTimeRangeFilter();
 
-        for (let i = 5; i >= 0; i--) {
+        // Determine number of months based on time range
+        let numMonths;
+        switch (this.selectedTimeRange) {
+          case 'this_month':
+          case 'last_month':
+            numMonths = 1;
+            break;
+          case 'last_6_months':
+            numMonths = 6;
+            break;
+          case 'last_12_months':
+          default:
+            numMonths = 12; // Show all 12 months for last_12_months
+            break;
+        }
+
+        const months = [];
+        for (let i = numMonths - 1; i >= 0; i--) {
           const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
           months.push({
             month: date.getMonth(),
@@ -625,9 +726,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // Filter transactions by account if selected
-        const filteredTransactions = this.selectedAccount
+        let filteredTransactions = this.selectedAccount
           ? this.transactions.filter(t => t.account === this.selectedAccount)
           : this.transactions;
+
+        // Apply time range filter
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
 
         // Get all categories
         const categories = [...new Set(filteredTransactions.map(t => t.category))].sort();
@@ -663,11 +770,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
 
       getIncomeData() {
-        // Get last 6 months
-        const months = [];
         const now = new Date();
+        const timeRangeFilter = this.getTimeRangeFilter();
 
-        for (let i = 5; i >= 0; i--) {
+        // Determine number of months based on time range
+        let numMonths;
+        switch (this.selectedTimeRange) {
+          case 'this_month':
+          case 'last_month':
+            numMonths = 1;
+            break;
+          case 'last_6_months':
+            numMonths = 6;
+            break;
+          case 'last_12_months':
+          default:
+            numMonths = 12; // Show all 12 months for last_12_months
+            break;
+        }
+
+        const months = [];
+        for (let i = numMonths - 1; i >= 0; i--) {
           const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
           months.push({
             month: date.getMonth(),
@@ -678,9 +801,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // Filter transactions by account if selected
-        const filteredTransactions = this.selectedAccount
+        let filteredTransactions = this.selectedAccount
           ? this.transactions.filter(t => t.account === this.selectedAccount)
           : this.transactions;
+
+        // Apply time range filter
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
 
         // Get income categories (amount >= 0)
         const incomeTransactions = filteredTransactions.filter(t => t.amount >= 0);
@@ -717,11 +846,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
 
       getExpenseData() {
-        // Get last 6 months
-        const months = [];
         const now = new Date();
+        const timeRangeFilter = this.getTimeRangeFilter();
 
-        for (let i = 5; i >= 0; i--) {
+        // Determine number of months based on time range
+        let numMonths;
+        switch (this.selectedTimeRange) {
+          case 'this_month':
+          case 'last_month':
+            numMonths = 1;
+            break;
+          case 'last_6_months':
+            numMonths = 6;
+            break;
+          case 'last_12_months':
+          default:
+            numMonths = 12; // Show all 12 months for last_12_months
+            break;
+        }
+
+        const months = [];
+        for (let i = numMonths - 1; i >= 0; i--) {
           const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
           months.push({
             month: date.getMonth(),
@@ -732,9 +877,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // Filter transactions by account if selected
-        const filteredTransactions = this.selectedAccount
+        let filteredTransactions = this.selectedAccount
           ? this.transactions.filter(t => t.account === this.selectedAccount)
           : this.transactions;
+
+        // Apply time range filter
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
 
         // Get expense categories (amount < 0)
         const expenseTransactions = filteredTransactions.filter(t => t.amount < 0);
@@ -831,7 +982,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Calculate top spending categories
         const categoryTotals = {};
 
-        this.transactions.forEach(transaction => {
+        // Filter transactions by account if selected
+        let filteredTransactions = this.selectedAccount
+          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          : this.transactions;
+
+        // Apply time range filter
+        const timeRangeFilter = this.getTimeRangeFilter();
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
+
+        filteredTransactions.forEach(transaction => {
           if (transaction.amount < 0) { // Only expenses
             const category = transaction.category;
             if (!categoryTotals[category]) {
@@ -920,6 +1083,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           console.log('Income expense chart rendered');
         } catch (error) {
           console.error('Error rendering income expense chart:', error);
+        }
+
+        try {
+          this.renderAccountBalanceChart();
+          console.log('Account balance chart rendered');
+        } catch (error) {
+          console.error('Error rendering account balance chart:', error);
         }
       },
 
@@ -1109,6 +1279,53 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       },
 
+      renderAccountBalanceChart() {
+        const ctx = document.getElementById('accountBalanceChart');
+        if (!ctx) return;
+
+        // Destroy existing chart if it exists
+        if (this.accountBalanceChart) {
+          this.accountBalanceChart.destroy();
+        }
+
+        const balanceData = this.getAccountBalanceData();
+
+        this.accountBalanceChart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: balanceData.labels,
+            datasets: balanceData.datasets
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: {
+                ticks: { color: '#9ca3af' },
+                grid: { color: '#374151' }
+              },
+              y: {
+                ticks: {
+                  color: '#9ca3af',
+                  callback: (value) => '€' + formatAmount(value)
+                },
+                grid: { color: '#374151' }
+              }
+            },
+            plugins: {
+              legend: {
+                labels: { color: '#9ca3af' },
+                position: 'top'
+              }
+            },
+            interaction: {
+              intersect: false,
+              mode: 'index'
+            }
+          }
+        });
+      },
+
       getMonthlyExpensesByCategory() {
         const last12Months = [];
         const now = new Date();
@@ -1163,29 +1380,55 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
 
       getMonthlyTrendData() {
-        const last12Months = [];
         const now = new Date();
+        const timeRangeFilter = this.getTimeRangeFilter();
 
-        for (let i = 11; i >= 0; i--) {
+        // Check if we should show daily data (for this_month and last_month)
+        const showDailyData = this.selectedTimeRange === 'this_month' || this.selectedTimeRange === 'last_month';
+
+        if (showDailyData) {
+          return this.getDailyTrendData();
+        }
+
+        // Determine number of months based on time range
+        let numMonths;
+        switch (this.selectedTimeRange) {
+          case 'last_6_months':
+            numMonths = 6;
+            break;
+          case 'last_12_months':
+          default:
+            numMonths = 12;
+            break;
+        }
+
+        const months = [];
+        for (let i = numMonths - 1; i >= 0; i--) {
           const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          last12Months.push({
+          months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
             label: date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' })
           });
         }
 
-        // Filter transactions by account if selected
-        const filteredTransactions = this.selectedAccount
+        // Filter transactions by account if selected and by time range
+        let filteredTransactions = this.selectedAccount
           ? this.transactions.filter(t => t.account === this.selectedAccount)
           : this.transactions;
 
-        const incomeData = new Array(12).fill(0);
-        const expenseData = new Array(12).fill(0);
+        // Apply time range filter
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
+
+        const incomeData = new Array(numMonths).fill(0);
+        const expenseData = new Array(numMonths).fill(0);
 
         filteredTransactions.forEach(transaction => {
           const transactionDate = new Date(transaction.date);
-          const monthIndex = last12Months.findIndex(m =>
+          const monthIndex = months.findIndex(m =>
             m.month === transactionDate.getMonth() && m.year === transactionDate.getFullYear()
           );
 
@@ -1198,10 +1441,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         });
 
-        console.log('getMonthlyTrendData result:', { labels: last12Months.map(m => m.label), incomeData, expenseData });
+        console.log('getMonthlyTrendData result:', { labels: months.map(m => m.label), incomeData, expenseData });
 
         return {
-          labels: last12Months.map(m => m.label),
+          labels: months.map(m => m.label),
           datasets: [
             {
               label: 'Inkomsten',
@@ -1221,11 +1464,93 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
       },
 
-      getCategoryPieData() {
+      getDailyTrendData() {
+        const timeRangeFilter = this.getTimeRangeFilter();
+
+        // Calculate number of days in the period
+        const startDate = new Date(timeRangeFilter.startDate);
+        const endDate = new Date(timeRangeFilter.endDate);
+        const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+
+        const days = [];
+        for (let i = 0; i < daysDiff; i++) {
+          const date = new Date(startDate);
+          date.setDate(startDate.getDate() + i);
+          days.push({
+            date: date.getDate(),
+            month: date.getMonth(),
+            year: date.getFullYear(),
+            label: date.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }),
+            fullDate: date.toISOString().split('T')[0]
+          });
+        }
+
         // Filter transactions by account if selected
-        const filteredTransactions = this.selectedAccount
+        let filteredTransactions = this.selectedAccount
           ? this.transactions.filter(t => t.account === this.selectedAccount)
           : this.transactions;
+
+        // Apply time range filter
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
+
+        const incomeData = new Array(daysDiff).fill(0);
+        const expenseData = new Array(daysDiff).fill(0);
+
+        filteredTransactions.forEach(transaction => {
+          const transactionDate = new Date(transaction.date);
+          const dayIndex = Math.floor((transactionDate - startDate) / (1000 * 60 * 60 * 24));
+
+          if (dayIndex >= 0 && dayIndex < daysDiff) {
+            if (transaction.amount >= 0) {
+              incomeData[dayIndex] += transaction.amount;
+            } else {
+              expenseData[dayIndex] += Math.abs(transaction.amount);
+            }
+          }
+        });
+
+        console.log('getDailyTrendData result:', {
+          labels: days.map(d => d.label),
+          incomeData,
+          expenseData
+        });
+
+        return {
+          labels: days.map(d => d.label),
+          datasets: [
+            {
+              label: 'Inkomsten',
+              data: incomeData,
+              borderColor: '#10b981',
+              backgroundColor: '#10b98120',
+              tension: 0.1
+            },
+            {
+              label: 'Uitgaven',
+              data: expenseData,
+              borderColor: '#ef4444',
+              backgroundColor: '#ef444420',
+              tension: 0.1
+            }
+          ]
+        };
+      },
+
+      getCategoryPieData() {
+        // Filter transactions by account if selected
+        let filteredTransactions = this.selectedAccount
+          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          : this.transactions;
+
+        // Apply time range filter
+        const timeRangeFilter = this.getTimeRangeFilter();
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
 
         const categoryTotals = {};
 
@@ -1249,13 +1574,283 @@ document.addEventListener('DOMContentLoaded', async () => {
         return { labels, data, colors };
       },
 
-      getIncomeExpenseData() {
-        const last6Months = [];
+      getAccountBalanceData() {
         const now = new Date();
+        const timeRangeFilter = this.getTimeRangeFilter();
 
-        for (let i = 5; i >= 0; i--) {
+        // Check if we should show daily data (for this_month and last_month)
+        const showDailyData = this.selectedTimeRange === 'this_month' || this.selectedTimeRange === 'last_month';
+
+        if (showDailyData) {
+          return this.getDailyAccountBalanceData();
+        }
+
+        // Determine number of months based on time range
+        let numMonths;
+        switch (this.selectedTimeRange) {
+          case 'last_6_months':
+            numMonths = 6;
+            break;
+          case 'last_12_months':
+          default:
+            numMonths = 12;
+            break;
+        }
+
+        const months = [];
+        for (let i = numMonths - 1; i >= 0; i--) {
           const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          last6Months.push({
+          months.push({
+            month: date.getMonth(),
+            year: date.getFullYear(),
+            label: date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' })
+          });
+        }
+
+        // Filter transactions by account if selected, but for balances we show all accounts
+        const filteredTransactions = this.selectedAccount
+          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          : this.transactions;
+
+        // Group transactions by account
+        const accountData = {};
+        const accounts = [...new Set(filteredTransactions.map(t => t.account).filter(account => account && account.trim()))].sort();
+
+        // Initialize data structure for each account
+        accounts.forEach(account => {
+          accountData[account] = {};
+          months.forEach(month => {
+            accountData[account][month.label] = null; // null means no data for that month
+          });
+        });
+
+        // Fill in balance data for each account and month
+        // For each account and each month, find the last transaction in that month
+        accounts.forEach(account => {
+          months.forEach(month => {
+            // Find all transactions for this account in this month
+            const monthTransactions = filteredTransactions
+              .filter(t =>
+                t.account === account &&
+                t.balance !== null &&
+                t.balance !== undefined &&
+                new Date(t.date).getMonth() === month.month &&
+                new Date(t.date).getFullYear() === month.year
+              )
+              .sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort by date descending (newest first)
+
+            // Use the balance from the last transaction in this month
+            if (monthTransactions.length > 0) {
+              accountData[account][month.label] = monthTransactions[0].balance;
+            }
+          });
+        });
+
+        // Create datasets for Chart.js
+        const datasets = accounts.map((account, index) => {
+          const colors = [
+            '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+            '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6b7280'
+          ];
+
+          return {
+            label: account,
+            data: months.map(month => accountData[account][month.label]),
+            borderColor: colors[index % colors.length],
+            backgroundColor: colors[index % colors.length] + '20',
+            tension: 0.1,
+            fill: false,
+            spanGaps: true // Connect points even with null values
+          };
+        });
+
+        return {
+          labels: months.map(m => m.label),
+          datasets: datasets
+        };
+      },
+
+      getCategoryStatistics() {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+
+        // Get all categories
+        const categories = [...new Set(this.transactions.map(t => t.category))].sort();
+
+        // Filter transactions by account if selected
+        let filteredTransactions = this.selectedAccount
+          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          : this.transactions;
+
+        const statistics = {};
+
+        categories.forEach(category => {
+          const categoryTransactions = filteredTransactions.filter(t => t.category === category);
+
+          // Group transactions by month/year
+          const monthlyTotals = {};
+          categoryTransactions.forEach(transaction => {
+            const date = new Date(transaction.date);
+            const key = `${date.getFullYear()}-${date.getMonth()}`;
+            if (!monthlyTotals[key]) {
+              monthlyTotals[key] = 0;
+            }
+            monthlyTotals[key] += Math.abs(transaction.amount);
+          });
+
+          // Calculate statistics
+          const thisMonth = monthlyTotals[`${currentYear}-${currentMonth}`] || 0;
+          const lastMonth = monthlyTotals[`${currentYear}-${currentMonth - 1}`] ||
+                           monthlyTotals[`${currentYear - 1}-${11}`] || 0;
+
+          // Calculate averages
+          const last12Months = [];
+          for (let i = 0; i < 12; i++) {
+            const date = new Date(currentYear, currentMonth - i, 1);
+            const key = `${date.getFullYear()}-${date.getMonth()}`;
+            last12Months.push(monthlyTotals[key] || 0);
+          }
+
+          const last6Months = last12Months.slice(0, 6);
+          const previousYear = [];
+          for (let i = 12; i < 24; i++) {
+            const date = new Date(currentYear, currentMonth - i, 1);
+            const key = `${date.getFullYear()}-${date.getMonth()}`;
+            previousYear.push(monthlyTotals[key] || 0);
+          }
+
+          const avgLast12Months = last12Months.reduce((sum, val) => sum + val, 0) / 12;
+          const avgLast6Months = last6Months.reduce((sum, val) => sum + val, 0) / 6;
+          const avgPreviousYear = previousYear.reduce((sum, val) => sum + val, 0) / 12;
+
+          // Find highest and lowest months
+          const allMonths = Object.values(monthlyTotals);
+          const highestMonth = allMonths.length > 0 ? Math.max(...allMonths) : 0;
+          const lowestMonth = allMonths.length > 0 ? Math.min(...allMonths) : 0;
+
+          statistics[category] = {
+            thisMonth,
+            lastMonth,
+            avgLast12Months,
+            avgLast6Months,
+            avgPreviousYear,
+            highestMonth,
+            lowestMonth,
+            // Helper for color logic: true if this month is higher than last month (worse)
+            isThisMonthHigher: thisMonth > lastMonth
+          };
+        });
+
+        return statistics;
+      },
+
+      getDailyAccountBalanceData() {
+        const timeRangeFilter = this.getTimeRangeFilter();
+
+        // Calculate number of days in the period
+        const startDate = new Date(timeRangeFilter.startDate);
+        const endDate = new Date(timeRangeFilter.endDate);
+        const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+
+        const days = [];
+        for (let i = 0; i < daysDiff; i++) {
+          const date = new Date(startDate);
+          date.setDate(startDate.getDate() + i);
+          days.push({
+            date: date.getDate(),
+            month: date.getMonth(),
+            year: date.getFullYear(),
+            label: date.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' }),
+            fullDate: date.toISOString().split('T')[0]
+          });
+        }
+
+        // Filter transactions by account if selected, but for balances we show all accounts
+        let filteredTransactions = this.selectedAccount
+          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          : this.transactions;
+
+        // Apply time range filter
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
+
+        // Group transactions by account
+        const accountData = {};
+        const accounts = [...new Set(filteredTransactions.map(t => t.account).filter(account => account && account.trim()))].sort();
+
+        // Initialize data structure for each account
+        accounts.forEach(account => {
+          accountData[account] = {};
+          days.forEach(day => {
+            accountData[account][day.fullDate] = null; // null means no data for that day
+          });
+        });
+
+        // Fill in balance data for each account and day
+        // Sort transactions by date to get the balance progression
+        const sortedTransactions = filteredTransactions
+          .filter(t => t.balance !== null && t.balance !== undefined)
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        sortedTransactions.forEach(transaction => {
+          if (transaction.account && accounts.includes(transaction.account)) {
+            const transactionDate = new Date(transaction.date).toISOString().split('T')[0];
+            // Store the balance for this day (will be overwritten by later transactions on the same day)
+            if (accountData[transaction.account][transactionDate] !== undefined) {
+              accountData[transaction.account][transactionDate] = transaction.balance;
+            }
+          }
+        });
+
+        // Create datasets for Chart.js
+        const colors = [
+          '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+          '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6b7280'
+        ];
+
+        const datasets = accounts.map((account, index) => ({
+          label: account,
+          data: days.map(day => accountData[account][day.fullDate]),
+          borderColor: colors[index % colors.length],
+          backgroundColor: colors[index % colors.length] + '20',
+          tension: 0.1,
+          fill: false,
+          spanGaps: true // Connect points even with null values
+        }));
+
+        return {
+          labels: days.map(d => d.label),
+          datasets: datasets
+        };
+      },
+
+      getIncomeExpenseData() {
+        const now = new Date();
+        const timeRangeFilter = this.getTimeRangeFilter();
+
+        // Determine number of months based on time range
+        let numMonths;
+        switch (this.selectedTimeRange) {
+          case 'this_month':
+          case 'last_month':
+            numMonths = 1;
+            break;
+          case 'last_6_months':
+            numMonths = 6;
+            break;
+          case 'last_12_months':
+          default:
+            numMonths = 12;
+            break;
+        }
+
+        const months = [];
+        for (let i = numMonths - 1; i >= 0; i--) {
+          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
             label: date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' })
@@ -1263,12 +1858,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // Filter transactions by account if selected
-        const filteredTransactions = this.selectedAccount
+        let filteredTransactions = this.selectedAccount
           ? this.transactions.filter(t => t.account === this.selectedAccount)
           : this.transactions;
 
-        const incomeData = new Array(6).fill(0);
-        const expenseData = new Array(6).fill(0);
+        // Apply time range filter
+        filteredTransactions = filteredTransactions.filter(t => {
+          const transactionDate = new Date(t.date);
+          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
+        });
+
+        const incomeData = new Array(numMonths).fill(0);
+        const expenseData = new Array(numMonths).fill(0);
 
         filteredTransactions.forEach(transaction => {
           const transactionDate = new Date(transaction.date);
@@ -2219,9 +2820,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.addEventListener('click', (event) => {
         const accountFilterButton = event.target.closest('[data-account-filter]');
         const accountFilterDropdown = event.target.closest('[data-account-dropdown]');
+        const timeFilterButton = event.target.closest('[data-time-filter]');
+        const timeFilterDropdown = event.target.closest('[data-time-dropdown]');
 
         if (!accountFilterButton && !accountFilterDropdown) {
           this.showAccountFilter = false;
+        }
+
+        if (!timeFilterButton && !timeFilterDropdown) {
+          this.showTimeRangeFilter = false;
         }
       });
     }

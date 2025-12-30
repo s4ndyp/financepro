@@ -573,11 +573,29 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="relative">
+                            <button @click="showTimeRangeFilter = !showTimeRangeFilter"
+                                    data-time-filter
+                                    class="px-3 py-1 text-sm rounded-lg transition flex items-center gap-2 bg-gray-700 text-gray-300 hover:bg-gray-600">
+                                <i class="fas fa-calendar-alt"></i>
+                                <span>{{ timeRangeOptions.find(opt => opt.value === selectedTimeRange)?.label || 'Laatste 12 maanden' }}</span>
+                                <i class="fas fa-chevron-down text-xs"></i>
+                            </button>
+                            <div v-if="showTimeRangeFilter" data-time-dropdown class="absolute top-full left-0 mt-1 bg-dark_paper border border-gray-600 rounded-lg shadow-lg z-10 min-w-[180px]">
+                                <div class="p-2">
+                                    <div v-for="option in timeRangeOptions" :key="option.value" class="border-t border-gray-700 first:border-t-0">
+                                        <button @click="setSelectedTimeRange(option.value)" class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition">
+                                            {{ option.label }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <p class="text-gray-400">Statistische inzichten in je financiële gedrag</p>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                     <!-- Monthly Trend Chart -->
                     <div class="bg-dark_paper p-6 rounded-xl border border-gray-700">
                         <h3 class="text-lg font-semibold text-white mb-4">Maandelijkse Trend</h3>
@@ -591,6 +609,14 @@
                         <h3 class="text-lg font-semibold text-white mb-4">Uitgaven per Categorie</h3>
                         <div class="relative h-[300px] w-full overflow-hidden">
                             <canvas id="categoryPieChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Account Balances -->
+                    <div class="bg-dark_paper p-6 rounded-xl border border-gray-700">
+                        <h3 class="text-lg font-semibold text-white mb-4">Rekening Saldo's</h3>
+                        <div class="relative h-[300px] w-full overflow-hidden">
+                            <canvas id="accountBalanceChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -623,6 +649,63 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- Category Statistics Table -->
+                <div class="bg-dark_paper p-6 rounded-xl border border-gray-700">
+                    <h3 class="text-lg font-semibold text-white mb-4">Categorie Statistieken</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-800/30">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Deze maand</th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Vorige maand</th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Gem. afgelopen jaar</th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Gem. 6 maanden</th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Gem. vorig jaar</th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Hoogste maand</th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Laagste maand</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(stats, category) in categoryStatistics" :key="category"
+                                    class="border-t border-gray-700/30 hover:bg-gray-800/20">
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-6 h-6 rounded flex items-center justify-center"
+                                                 :style="{ backgroundColor: getCategoryColor(category) }">
+                                                <i class="fas fa-tag text-white text-xs"></i>
+                                            </div>
+                                            <span class="text-white font-medium">{{ category }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="px-4 py-3 text-right"
+                                        :class="stats.isThisMonthHigher ? 'text-red-400' : 'text-green-400'">
+                                        €{{ formatAmount(stats.thisMonth) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-white">
+                                        €{{ formatAmount(stats.lastMonth) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-white">
+                                        €{{ formatAmount(stats.avgLast12Months) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-white">
+                                        €{{ formatAmount(stats.avgLast6Months) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-white">
+                                        €{{ formatAmount(stats.avgPreviousYear) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-red-400">
+                                        €{{ formatAmount(stats.highestMonth) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-green-400">
+                                        €{{ formatAmount(stats.lowestMonth) }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -658,8 +741,26 @@
                                         </div>
                                     </div>
                                 </div>
+                                <div class="relative">
+                                    <button @click="showTimeRangeFilter = !showTimeRangeFilter"
+                                            data-time-filter
+                                            class="px-3 py-1 text-sm rounded-lg transition flex items-center gap-2 bg-gray-700 text-gray-300 hover:bg-gray-600">
+                                        <i class="fas fa-calendar-alt"></i>
+                                        <span>{{ timeRangeOptions.find(opt => opt.value === selectedTimeRange)?.label || 'Laatste 12 maanden' }}</span>
+                                        <i class="fas fa-chevron-down text-xs"></i>
+                                    </button>
+                                    <div v-if="showTimeRangeFilter" data-time-dropdown class="absolute top-full left-0 mt-1 bg-dark_paper border border-gray-600 rounded-lg shadow-lg z-10 min-w-[180px]">
+                                        <div class="p-2">
+                                            <div v-for="option in timeRangeOptions" :key="option.value" class="border-t border-gray-700 first:border-t-0">
+                                                <button @click="setSelectedTimeRange(option.value)" class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition">
+                                                    {{ option.label }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <p class="text-gray-400">Gedetailleerd overzicht per categorie over de laatste 6 maanden</p>
+                            <p class="text-gray-400">Gedetailleerd overzicht per categorie over de geselecteerde periode</p>
                         </div>
                         <button @click="refreshDetailsData"
                                 class="px-4 py-2 bg-primary hover:bg-indigo-600 text-white font-medium rounded-lg transition flex items-center gap-2">
@@ -680,33 +781,38 @@
                         <table class="w-full">
                             <thead class="bg-gray-800/30">
                                 <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
-                                    <th v-for="month in incomeData.months" :key="month.label"
-                                        class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]">
-                                        {{ month.fullLabel }}
+                                    <th :class="isCompactTableMode ? 'px-2 py-2 text-left text-xs font-bold text-gray-500 uppercase' : 'px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase'">
+                                        Categorie
                                     </th>
-                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Totaal</th>
+                                    <th v-for="month in incomeData.months" :key="month.label"
+                                        :class="isCompactTableMode ? 'px-1 py-2 text-right text-xs font-bold text-gray-500 uppercase min-w-[60px]' : 'px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]'">
+                                        <span :title="month.fullLabel">{{ month.label }}</span>
+                                    </th>
+                                    <th :class="isCompactTableMode ? 'px-2 py-2 text-right text-xs font-bold text-gray-500 uppercase' : 'px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase'">
+                                        Totaal
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr v-for="category in incomeData.categories" :key="category"
                                     class="border-t border-gray-700/30 hover:bg-gray-800/20">
-                                    <td class="px-4 py-3">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-6 h-6 rounded flex items-center justify-center"
+                                    <td :class="isCompactTableMode ? 'px-2 py-2' : 'px-4 py-3'">
+                                        <div class="flex items-center gap-2">
+                                            <div :class="isCompactTableMode ? 'w-5 h-5' : 'w-6 h-6'" class="rounded flex items-center justify-center"
                                                  :style="{ backgroundColor: getCategoryColor(category) }">
-                                                <i class="fas fa-tag text-white text-xs"></i>
+                                                <i :class="isCompactTableMode ? 'text-xs' : 'text-xs'" class="fas fa-tag text-white"></i>
                                             </div>
-                                            <span class="text-white font-medium">{{ category }}</span>
+                                            <span :class="isCompactTableMode ? 'text-sm' : 'text-base'" class="text-white font-medium"
+                                                  :title="category">{{ truncateCategoryName(category, isCompactTableMode ? 12 : 25) }}</span>
                                         </div>
                                     </td>
                                     <td v-for="month in incomeData.months" :key="month.label"
-                                        class="px-4 py-3 text-right">
+                                        :class="isCompactTableMode ? 'px-1 py-2 text-right text-sm' : 'px-4 py-3 text-right'">
                                         <span class="text-green-400">
                                             €{{ formatAmount(incomeData.data[category]?.[month.label] || 0) }}
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-right">
+                                    <td :class="isCompactTableMode ? 'px-2 py-2 text-right' : 'px-4 py-3 text-right'">
                                         <span class="text-green-400 font-semibold">
                                             €{{ formatAmount(incomeData.data[category]?.total || 0) }}
                                         </span>
@@ -714,21 +820,21 @@
                                 </tr>
                                 <!-- Income Total Row -->
                                 <tr class="border-t-2 border-green-600 bg-green-800/10">
-                                    <td class="px-4 py-3">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-6 h-6 rounded bg-green-600 flex items-center justify-center">
+                                    <td :class="isCompactTableMode ? 'px-2 py-2' : 'px-4 py-3'">
+                                        <div class="flex items-center gap-2">
+                                            <div :class="isCompactTableMode ? 'w-5 h-5' : 'w-6 h-6'" class="rounded bg-green-600 flex items-center justify-center">
                                                 <i class="fas fa-plus text-white text-xs"></i>
                                             </div>
-                                            <span class="text-green-400 font-bold">INKOMSTEN TOTAAL</span>
+                                            <span :class="isCompactTableMode ? 'text-sm' : 'text-base'" class="text-green-400 font-bold">INKOMSTEN TOTAAL</span>
                                         </div>
                                     </td>
                                     <td v-for="month in incomeData.months" :key="month.label"
-                                        class="px-4 py-3 text-right">
+                                        :class="isCompactTableMode ? 'px-1 py-2 text-right text-sm' : 'px-4 py-3 text-right'">
                                         <span class="text-green-400 font-semibold">
                                             €{{ formatAmount(this.getMonthlyIncomeTotal(month)) }}
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-right">
+                                    <td :class="isCompactTableMode ? 'px-2 py-2 text-right' : 'px-4 py-3 text-right'">
                                         <span class="text-green-400 font-bold text-lg">
                                             €{{ formatAmount(this.getIncomeGrandTotal()) }}
                                         </span>
@@ -750,33 +856,38 @@
                         <table class="w-full">
                             <thead class="bg-gray-800/30">
                                 <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
-                                    <th v-for="month in expenseData.months" :key="month.label"
-                                        class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]">
-                                        {{ month.fullLabel }}
+                                    <th :class="isCompactTableMode ? 'px-2 py-2 text-left text-xs font-bold text-gray-500 uppercase' : 'px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase'">
+                                        Categorie
                                     </th>
-                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Totaal</th>
+                                    <th v-for="month in expenseData.months" :key="month.label"
+                                        :class="isCompactTableMode ? 'px-1 py-2 text-right text-xs font-bold text-gray-500 uppercase min-w-[60px]' : 'px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]'">
+                                        <span :title="month.fullLabel">{{ month.label }}</span>
+                                    </th>
+                                    <th :class="isCompactTableMode ? 'px-2 py-2 text-right text-xs font-bold text-gray-500 uppercase' : 'px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase'">
+                                        Totaal
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr v-for="category in expenseData.categories" :key="category"
                                     class="border-t border-gray-700/30 hover:bg-gray-800/20">
-                                    <td class="px-4 py-3">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-6 h-6 rounded flex items-center justify-center"
+                                    <td :class="isCompactTableMode ? 'px-2 py-2' : 'px-4 py-3'">
+                                        <div class="flex items-center gap-2">
+                                            <div :class="isCompactTableMode ? 'w-5 h-5' : 'w-6 h-6'" class="rounded flex items-center justify-center"
                                                  :style="{ backgroundColor: getCategoryColor(category) }">
-                                                <i class="fas fa-tag text-white text-xs"></i>
+                                                <i :class="isCompactTableMode ? 'text-xs' : 'text-xs'" class="fas fa-tag text-white"></i>
                                             </div>
-                                            <span class="text-white font-medium">{{ category }}</span>
+                                            <span :class="isCompactTableMode ? 'text-sm' : 'text-base'" class="text-white font-medium"
+                                                  :title="category">{{ truncateCategoryName(category, isCompactTableMode ? 12 : 25) }}</span>
                                         </div>
                                     </td>
                                     <td v-for="month in expenseData.months" :key="month.label"
-                                        class="px-4 py-3 text-right">
+                                        :class="isCompactTableMode ? 'px-1 py-2 text-right text-sm' : 'px-4 py-3 text-right'">
                                         <span class="text-red-400">
                                             €{{ formatAmount(Math.abs(expenseData.data[category]?.[month.label] || 0)) }}
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-right">
+                                    <td :class="isCompactTableMode ? 'px-2 py-2 text-right' : 'px-4 py-3 text-right'">
                                         <span class="text-red-400 font-semibold">
                                             €{{ formatAmount(Math.abs(expenseData.data[category]?.total || 0)) }}
                                         </span>
@@ -784,21 +895,21 @@
                                 </tr>
                                 <!-- Expense Total Row -->
                                 <tr class="border-t-2 border-red-600 bg-red-800/10">
-                                    <td class="px-4 py-3">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-6 h-6 rounded bg-red-600 flex items-center justify-center">
+                                    <td :class="isCompactTableMode ? 'px-2 py-2' : 'px-4 py-3'">
+                                        <div class="flex items-center gap-2">
+                                            <div :class="isCompactTableMode ? 'w-5 h-5' : 'w-6 h-6'" class="rounded bg-red-600 flex items-center justify-center">
                                                 <i class="fas fa-minus text-white text-xs"></i>
                                             </div>
-                                            <span class="text-red-400 font-bold">UITGAVEN TOTAAL</span>
+                                            <span :class="isCompactTableMode ? 'text-sm' : 'text-base'" class="text-red-400 font-bold">UITGAVEN TOTAAL</span>
                                         </div>
                                     </td>
                                     <td v-for="month in expenseData.months" :key="month.label"
-                                        class="px-4 py-3 text-right">
+                                        :class="isCompactTableMode ? 'px-1 py-2 text-right text-sm' : 'px-4 py-3 text-right'">
                                         <span class="text-red-400 font-semibold">
                                             €{{ formatAmount(Math.abs(this.getMonthlyExpenseTotal(month))) }}
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-right">
+                                    <td :class="isCompactTableMode ? 'px-2 py-2 text-right' : 'px-4 py-3 text-right'">
                                         <span class="text-red-400 font-bold text-lg">
                                             €{{ formatAmount(Math.abs(this.getExpenseGrandTotal())) }}
                                         </span>
@@ -820,31 +931,35 @@
                         <table class="w-full">
                             <thead class="bg-gray-800/30">
                                 <tr>
-                                    <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Periode</th>
-                                    <th v-for="month in (incomeData?.months || expenseData?.months)" :key="month.label"
-                                        class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]">
-                                        {{ month.fullLabel }}
+                                    <th :class="isCompactTableMode ? 'px-2 py-2 text-left text-xs font-bold text-gray-500 uppercase' : 'px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase'">
+                                        Periode
                                     </th>
-                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Totaal</th>
+                                    <th v-for="month in (incomeData?.months || expenseData?.months)" :key="month.label"
+                                        :class="isCompactTableMode ? 'px-1 py-2 text-right text-xs font-bold text-gray-500 uppercase min-w-[60px]' : 'px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]'">
+                                        <span :title="month.fullLabel">{{ month.label }}</span>
+                                    </th>
+                                    <th :class="isCompactTableMode ? 'px-2 py-2 text-right text-xs font-bold text-gray-500 uppercase' : 'px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase'">
+                                        Totaal
+                                    </th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr class="border-t border-primary/30 bg-primary/5">
-                                    <td class="px-4 py-3">
-                                        <div class="flex items-center gap-3">
-                                            <div class="w-6 h-6 rounded bg-primary flex items-center justify-center">
+                                    <td :class="isCompactTableMode ? 'px-2 py-2' : 'px-4 py-3'">
+                                        <div class="flex items-center gap-2">
+                                            <div :class="isCompactTableMode ? 'w-5 h-5' : 'w-6 h-6'" class="rounded bg-primary flex items-center justify-center">
                                                 <i class="fas fa-equals text-white text-xs"></i>
                                             </div>
-                                            <span class="text-primary font-bold">NETTO RESULTAAT</span>
+                                            <span :class="isCompactTableMode ? 'text-sm' : 'text-base'" class="text-primary font-bold">NETTO RESULTAAT</span>
                                         </div>
                                     </td>
                                     <td v-for="month in (incomeData?.months || expenseData?.months)" :key="month.label"
-                                        class="px-4 py-3 text-right">
+                                        :class="isCompactTableMode ? 'px-1 py-2 text-right text-sm' : 'px-4 py-3 text-right'">
                                         <span :class="this.getMonthlyNetResult(month) >= 0 ? 'text-green-400' : 'text-red-400'" class="font-semibold">
                                             €{{ formatAmount(this.getMonthlyNetResult(month)) }}
                                         </span>
                                     </td>
-                                    <td class="px-4 py-3 text-right">
+                                    <td :class="isCompactTableMode ? 'px-2 py-2 text-right' : 'px-4 py-3 text-right'">
                                         <span :class="this.getNetGrandTotal() >= 0 ? 'text-green-400' : 'text-red-400'" class="font-bold text-lg">
                                             €{{ formatAmount(this.getNetGrandTotal()) }}
                                         </span>
