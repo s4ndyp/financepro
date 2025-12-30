@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="nl" class="h-full dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FinancePro - Persoonlijke Financiën</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+
+    <script src="offline_manager.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="h-full text-gray-200 font-sans bg-dark transition-colors duration-300 overflow-hidden">
+
+<div id="app" v-cloak class="flex flex-col h-screen md:flex-row relative">
+
+
+    <!-- Login Screen -->
+    <div v-if="!isAuthenticated" class="fixed inset-0 z-[100] bg-dark flex items-center justify-center p-4">
+        <div class="bg-dark_paper w-full max-w-sm p-8 rounded-2xl shadow-2xl border border-gray-700">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-gradient-to-br from-primary to-accent rounded-2xl mx-auto flex items-center justify-center text-white text-3xl shadow-lg mb-4">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-white">FinancePro</h1>
+                <p class="text-sm text-gray-400">Persoonlijke Financiën Beheer</p>
+            </div>
+            <form @submit.prevent="login">
+                <div class="space-y-2">
+                    <div>
+                        <label class="text-xs font-bold text-gray-500 uppercase">Client ID</label>
+                        <input v-model="loginForm.username" type="text" placeholder="Voer je client ID in" class="w-full bg-dark border border-gray-600 rounded-lg p-3 mt-1 text-white focus:border-primary outline-none">
+                    </div>
+                    <button type="submit" :disabled="isLoading" class="w-full py-3 bg-primary hover:opacity-90 text-white font-bold rounded-xl transition flex justify-center items-center gap-2 !mt-6">
+                        <i v-if="isLoading" class="fas fa-circle-notch fa-spin"></i>
+                        {{ isLoading ? 'Verbinden...' : 'Verbinden' }}
+                    </button>
+                </div>
+                <p v-if="loginError" class="mt-4 text-red-400 text-center text-sm"><i class="fas fa-exclamation-circle"></i> {{ loginError }}</p>
+            </form>
+        </div>
+    </div>
+
+    <!-- Sidebar Navigation -->
+    <div class="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 z-50">
+        <div class="flex flex-col flex-grow bg-dark_paper border-r border-gray-700 overflow-y-auto">
+            <div class="flex items-center flex-shrink-0 px-4 py-6">
+                <div class="w-10 h-10 bg-gradient-to-br from-primary to-accent rounded-xl flex items-center justify-center text-white shadow-lg">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+                <div class="ml-3">
+                    <h1 class="text-xl font-bold text-white">FinancePro</h1>
+                    <div class="flex items-center gap-1 mt-0.5">
+                        <span class="w-1.5 h-1.5 rounded-full" :class="dbConnected ? 'bg-green-500' : 'bg-red-500'"></span>
+                        <span class="text-[10px] text-gray-400">{{ dbConnected ? 'Online' : 'Offline' }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-5 flex-1 flex flex-col">
+                <nav class="flex-1 px-2 space-y-1">
+                    <button @click="changePage('dashboard')"
+                            :class="currentPage === 'dashboard' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'"
+                            class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
+                        <i class="fas fa-tachometer-alt mr-3"></i> Dashboard
+                    </button>
+                    <button @click="changePage('transactions')"
+                            :class="currentPage === 'transactions' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'"
+                            class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
+                        <i class="fas fa-receipt mr-3"></i> Transacties
+                    </button>
+                    <button @click="changePage('categories')"
+                            :class="currentPage === 'categories' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'"
+                            class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
+                        <i class="fas fa-tags mr-3"></i> Categorieën
+                    </button>
+                    <button @click="changePage('rules')"
+                            :class="currentPage === 'rules' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'"
+                            class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
+                        <i class="fas fa-robot mr-3"></i> Regels
+                    </button>
+                    <button @click="changePage('insights')"
+                            :class="currentPage === 'insights' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'"
+                            class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
+                        <i class="fas fa-chart-bar mr-3"></i> Insights
+                    </button>
+                    <button @click="changePage('details')"
+                            :class="currentPage === 'details' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'"
+                            class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
+                        <i class="fas fa-table mr-3"></i> Details
+                    </button>
+                </nav>
+            </div>
+
+            <div class="flex-shrink-0 flex border-t border-gray-700 p-4">
+                <button @click="showSettingsModal = true" class="flex-shrink-0 w-full group block">
+                    <div class="flex items-center">
+                        <div class="w-8 h-8 bg-gray-700 rounded-lg flex items-center justify-center">
+                            <i class="fas fa-cog text-gray-300"></i>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm font-medium text-gray-300 group-hover:text-white">Instellingen</p>
+                        </div>
+                    </div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Header -->
+    <header class="md:hidden bg-dark_paper/80 backdrop-blur-md p-4 flex justify-between items-center z-20 border-b border-gray-700 sticky top-0">
+        <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-gradient-to-br from-primary to-accent rounded-lg flex items-center justify-center text-white shadow-lg">
+                <i class="fas fa-chart-line text-xs"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-lg text-white leading-none">FinancePro</h1>
+                <div class="flex items-center gap-1 mt-0.5">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="dbConnected ? 'bg-green-500' : 'bg-red-500'"></span>
+                    <span class="text-[10px] text-gray-400">{{ dbConnected ? 'Online' : 'Offline' }}</span>
+                </div>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <button @click="showMobileMenu = !showMobileMenu" class="w-8 h-8 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg flex items-center justify-center">
+                <i class="fas fa-bars text-xs"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Mobile Menu -->
+    <div v-if="showMobileMenu" class="md:hidden fixed inset-0 z-40 bg-black/50" @click="showMobileMenu = false">
+        <div class="fixed inset-y-0 right-0 w-64 bg-dark_paper shadow-xl" @click.stop>
+            <div class="flex items-center justify-between p-4 border-b border-gray-700">
+                <h2 class="text-lg font-semibold text-white">Menu</h2>
+                <button @click="showMobileMenu = false" class="text-gray-400 hover:text-white">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <nav class="mt-4 px-2 space-y-1">
+                <button @click="changePage('dashboard')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
+                    <i class="fas fa-tachometer-alt mr-3"></i> Dashboard
+                </button>
+                <button @click="changePage('transactions')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
+                    <i class="fas fa-receipt mr-3"></i> Transacties
+                </button>
+                <button @click="changePage('categories')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
+                    <i class="fas fa-tags mr-3"></i> Categorieën
+                </button>
+                <button @click="changePage('rules')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
+                    <i class="fas fa-robot mr-3"></i> Regels
+                </button>
+                <button @click="changePage('insights')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
+                    <i class="fas fa-chart-bar mr-3"></i> Insights
+                </button>
+                <button @click="changePage('details')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
+                    <i class="fas fa-table mr-3"></i> Details
+                </button>
+                <div class="border-t border-gray-700 mt-4 pt-4">
+                    <button @click="showSettingsModal = true; showMobileMenu = false" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
+                        <i class="fas fa-cog mr-3"></i> Instellingen
+                    </button>
+                </div>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col h-full overflow-hidden md:pl-64 relative bg-dark">
+
+        <!-- Dashboard Page -->
+        <div v-if="currentPage === 'dashboard'" class="flex-1 overflow-y-auto p-4 md:p-6">
+            <div class="max-w-7xl mx-auto">
+                <div class="mb-6">
+                    <h2 class="text-2xl font-bold text-white mb-2">Dashboard</h2>
+                    <p class="text-gray-400">Overzicht van je financiële situatie</p>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-dark_paper p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-400">Deze Maand</p>
+                                <p class="text-2xl font-bold text-red-400">€{{ formatAmount(monthlyExpenses) }}</p>
+                            </div>
+                            <div class="w-10 h-10 bg-red-500/20 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-arrow-down text-red-400"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-dark_paper p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-400">Deze Maand</p>
+                                <p class="text-2xl font-bold text-green-400">€{{ formatAmount(monthlyIncome) }}</p>
+                            </div>
+                            <div class="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-arrow-up text-green-400"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-dark_paper p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-400">Saldo</p>
+                                <p class="text-2xl font-bold" :class="monthlyBalance >= 0 ? 'text-green-400' : 'text-red-400'">
+                                    €{{ formatAmount(monthlyBalance) }}
+                                </p>
+                            </div>
+                            <div class="w-10 h-10 bg-primary/20 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-balance-scale text-primary"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Monthly Expenses Chart -->
+                <div class="bg-dark_paper p-6 rounded-xl border border-gray-700 mb-6">
+                    <h3 class="text-lg font-semibold text-white mb-4">Uitgaven per Categorie - Laatste 12 Maanden</h3>
+                    <div class="relative h-[300px] w-full overflow-hidden">
+                        <canvas id="monthlyExpensesChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Recent Transactions -->
+                <div class="bg-dark_paper p-6 rounded-xl border border-gray-700">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-white">Recente Transacties</h3>
+                        <button @click="changePage('transactions')" class="text-primary hover:underline text-sm">Bekijk alles</button>
+                    </div>
+                    <div class="space-y-3">
+                        <div v-for="transaction in recentTransactions" :key="transaction.id"
+                             class="flex items-center justify-between p-3 bg-dark/50 rounded-lg border border-gray-700/50">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center text-xs"
+                                     :style="{ backgroundColor: getCategoryColor(transaction.category) + '20', color: getCategoryColor(transaction.category) }">
+                                    <i class="fas fa-tag"></i>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium text-white">{{ transaction.description }}</p>
+                                    <p class="text-xs text-gray-400">{{ formatDate(transaction.date) }}</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-medium" :class="transaction.amount >= 0 ? 'text-green-400' : 'text-red-400'">
+                                    {{ transaction.amount >= 0 ? '+' : '' }}€{{ formatAmount(Math.abs(transaction.amount)) }}
+                                </p>
+                                <p class="text-xs text-gray-400">{{ transaction.category }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Transactions Page -->
+        <div v-if="currentPage === 'transactions'" class="flex-1 overflow-y-auto p-4 md:p-6">
+            <div class="max-w-7xl mx-auto">
+                <div class="flex flex-col md:flex-row md:items-center justify-between mb-6">
+                    <div>
+                        <div class="flex items-center gap-3 mb-2">
+                            <h2 class="text-2xl font-bold text-white">Transacties</h2>
+                            <div class="relative">
+                                <button @click="showAccountFilter = !showAccountFilter"
+                                        data-account-filter
+                                        class="px-3 py-1 text-sm rounded-lg transition flex items-center gap-2"
+                                        :class="selectedAccount ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'">
+                                    <i class="fas fa-university"></i>
+                                    <span>{{ selectedAccount || 'Alle rekeningen' }}</span>
+                                    <i class="fas fa-chevron-down text-xs"></i>
+                                </button>
+                                <div v-if="showAccountFilter" data-account-dropdown class="absolute top-full left-0 mt-1 bg-dark_paper border border-gray-600 rounded-lg shadow-lg z-10 min-w-[200px]">
+                                    <div class="p-2">
+                                        <button @click="setSelectedAccount('')" class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition">
+                                            Alle rekeningen
+                                        </button>
+                                        <div v-for="account in availableAccounts" :key="account" class="border-t border-gray-700 first:border-t-0">
+                                            <button @click="setSelectedAccount(account)" class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition">
+                                                {{ account || 'Geen rekening' }}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-gray-400">Beheer al je financiële transacties</p>
+                    </div>
+                    <div class="flex gap-2 mt-4 md:mt-0">
+                        <button @click="toggleColumnSettings = !toggleColumnSettings" class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
+                            <i class="fas fa-columns"></i> Kolommen
+                        </button>
+                        <button @click="openCsvImportModal" class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
+                            <i class="fas fa-file-import"></i> CSV Import
+                        </button>
+                        <button @click="openAddTransactionModal" class="py-2 px-4 bg-primary hover:opacity-90 text-white font-semibold rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
+                            <i class="fas fa-plus"></i> Nieuwe Transactie
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Column Visibility Settings -->
+                <div v-if="toggleColumnSettings" class="bg-dark_paper p-4 rounded-xl border border-gray-700 mb-4">
+                    <h3 class="text-lg font-semibold text-white mb-3">Zichtbare Kolommen</h3>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <label v-for="(visible, column) in columnVisibility" :key="column" class="flex items-center gap-2">
+                            <input type="checkbox" :checked="visible" @change="columnVisibility[column] = $event.target.checked" class="rounded border-gray-600">
+                            <span class="text-sm text-gray-300 capitalize">{{ column }}</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="bg-dark_paper p-4 rounded-xl border border-gray-700 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Zoek</label>
+                            <input v-model="transactionFilters.search" type="text" placeholder="Zoek op omschrijving..."
+                                   class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Categorie</label>
+                            <select v-model="transactionFilters.category" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                                <option value="">Alle categorieën</option>
+                                <option v-for="category in categories" :key="category.id" :value="category.name">{{ category.name }}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Type</label>
+                            <select v-model="transactionFilters.type" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                                <option value="">Alle types</option>
+                                <option value="income">Inkomsten</option>
+                                <option value="expense">Uitgaven</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Periode</label>
+                            <select v-model="transactionFilters.period" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                                <option value="">Alle periodes</option>
+                                <option value="this_month">Deze maand</option>
+                                <option value="last_month">Vorige maand</option>
+                                <option value="this_year">Dit jaar</option>
+                                <option value="last_year">Vorig jaar</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bulk Actions -->
+                <div v-if="selectedTransactions.length > 0" class="bg-primary/10 border border-primary/30 p-4 rounded-xl mb-4">
+                    <div class="flex items-center justify-between">
+                        <span class="text-white">{{ selectedTransactions.length }} transacties geselecteerd</span>
+                        <div class="flex gap-2">
+                            <button @click="openBulkEditModal" class="py-2 px-4 bg-primary hover:opacity-90 text-white font-medium rounded-lg transition text-sm">
+                                <i class="fas fa-edit mr-2"></i> Bulk Bewerken
+                            </button>
+                            <button @click="deleteSelectedTransactions" class="py-2 px-4 bg-red-500 hover:bg-red-600 text-white font-medium rounded-lg transition text-sm">
+                                <i class="fas fa-trash mr-2"></i> Verwijderen
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transactions Table -->
+                <div class="bg-dark_paper rounded-xl border border-gray-700 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-800/50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left">
+                                        <input type="checkbox" v-model="selectAllTransactions" class="rounded border-gray-600">
+                                    </th>
+                                    <th v-if="columnVisibility.date" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Datum</th>
+                                    <th v-if="columnVisibility.name" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Naam</th>
+                                    <th v-if="columnVisibility.description" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Omschrijving</th>
+                                    <th v-if="columnVisibility.account" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Van/Naar</th>
+                                    <th v-if="columnVisibility.category" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
+                                    <th v-if="columnVisibility.amount" class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Bedrag</th>
+                                    <th v-if="columnVisibility.balance" class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Saldo</th>
+                                    <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Acties</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="transaction in filteredTransactions" :key="transaction.id"
+                                    class="border-t border-gray-700/50 hover:bg-gray-800/30">
+                                    <td class="px-4 py-3">
+                                        <input type="checkbox" :value="transaction.id" v-model="selectedTransactions" class="rounded border-gray-600">
+                                    </td>
+                                    <td v-if="columnVisibility.date" class="px-4 py-3 text-sm text-gray-300">{{ formatDate(transaction.date) }}</td>
+                                    <td v-if="columnVisibility.name" class="px-4 py-3">
+                                        <div class="text-sm text-gray-300">{{ transaction.name || '-' }}</div>
+                                    </td>
+                                    <td v-if="columnVisibility.description" class="px-4 py-3">
+                                        <div class="text-sm font-medium text-white">{{ transaction.description }}</div>
+                                    </td>
+                                    <td v-if="columnVisibility.account" class="px-4 py-3">
+                                        <div class="text-sm text-gray-300">{{ transaction.account || '-' }}</div>
+                                    </td>
+                                    <td v-if="columnVisibility.category" class="px-4 py-3">
+                                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
+                                              :style="{ backgroundColor: getCategoryColor(transaction.category) + '20', color: getCategoryColor(transaction.category) }">
+                                            {{ transaction.category }}
+                                        </span>
+                                    </td>
+                                    <td v-if="columnVisibility.amount" class="px-4 py-3 text-right">
+                                        <span class="text-sm font-medium" :class="transaction.amount >= 0 ? 'text-green-400' : 'text-red-400'">
+                                            {{ transaction.amount >= 0 ? '+' : '' }}€{{ formatAmount(Math.abs(transaction.amount)) }}
+                                        </span>
+                                    </td>
+                                    <td v-if="columnVisibility.balance" class="px-4 py-3 text-right">
+                                        <span v-if="transaction.balance !== null && transaction.balance !== undefined" class="text-sm text-gray-300">
+                                            €{{ formatAmount(transaction.balance) }}
+                                        </span>
+                                        <span v-else class="text-sm text-gray-600">-</span>
+                                    </td>
+                                    <td class="px-4 py-3">
+                                        <div class="flex gap-1">
+                                            <button @click="editTransaction(transaction)" class="w-8 h-8 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition flex items-center justify-center text-xs">
+                                                <i class="fas fa-pen"></i>
+                                            </button>
+                                            <button @click="deleteTransaction(transaction.id)" class="w-8 h-8 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition flex items-center justify-center text-xs">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Categories Page -->
+        <div v-if="currentPage === 'categories'" class="flex-1 overflow-y-auto p-4 md:p-6">
+            <div class="max-w-4xl mx-auto">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-white mb-2">Categorieën</h2>
+                        <p class="text-gray-400">Beheer je uitgave categorieën</p>
+                    </div>
+                    <button @click="openAddCategoryModal" class="py-2 px-4 bg-primary hover:opacity-90 text-white font-semibold rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
+                        <i class="fas fa-plus"></i> Nieuwe Categorie
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div v-for="category in categories" :key="category.id"
+                         class="bg-dark_paper p-4 rounded-xl border border-gray-700 hover:border-gray-600 transition">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+                                     :style="{ backgroundColor: category.color + '20', color: category.color }">
+                                    <i class="fas fa-tag"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-semibold text-white">{{ category.name }}</h3>
+                                    <p class="text-sm text-gray-400">{{ category.transactionCount || 0 }} transacties</p>
+                                </div>
+                            </div>
+                            <div class="flex gap-1">
+                                <button @click="editCategory(category)" class="w-8 h-8 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition flex items-center justify-center text-xs">
+                                    <i class="fas fa-pen"></i>
+                                </button>
+                                <button @click="deleteCategory(category.id)" class="w-8 h-8 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition flex items-center justify-center text-xs">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="space-y-1">
+                                <div v-if="category.incomeTotal > 0" class="flex justify-end items-center gap-2">
+                                    <span class="text-sm text-green-400">+€{{ formatAmount(category.incomeTotal) }}</span>
+                                    <i class="fas fa-arrow-up text-green-400 text-xs"></i>
+                                </div>
+                                <div v-if="category.expenseTotal > 0" class="flex justify-end items-center gap-2">
+                                    <span class="text-sm text-red-400">-€{{ formatAmount(category.expenseTotal) }}</span>
+                                    <i class="fas fa-arrow-down text-red-400 text-xs"></i>
+                                </div>
+                                <div v-if="(category.incomeTotal || 0) === 0 && (category.expenseTotal || 0) === 0" class="text-sm text-gray-500">
+                                    €0,00
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-400 mt-1">Dit jaar</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Rules Page -->
+        <div v-if="currentPage === 'rules'" class="flex-1 overflow-y-auto p-4 md:p-6">
+            <div class="max-w-4xl mx-auto">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-white mb-2">Automatische Regels</h2>
+                        <p class="text-gray-400">Stel regels in voor automatische categorisering</p>
+                    </div>
+                    <button @click="openAddRuleModal" class="py-2 px-4 bg-primary hover:opacity-90 text-white font-semibold rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
+                        <i class="fas fa-plus"></i> Nieuwe Regel
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <div v-for="rule in rules" :key="rule.id"
+                         class="bg-dark_paper p-4 rounded-xl border border-gray-700">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-lg flex items-center justify-center"
+                                     :class="rule.active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'">
+                                    <i class="fas fa-robot"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-semibold text-white">{{ rule.name }}</h3>
+                                    <p class="text-sm text-gray-400">
+                                        Als {{ rule.condition.field }} {{ rule.condition.operator }} "{{ rule.condition.value }}"
+                                        dan {{ rule.action.type === 'set_category' ? 'stel categorie in op' : 'stel omschrijving in op' }} "{{ rule.action.value }}"
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button @click="toggleRuleActive(rule)" class="w-8 h-8 rounded-lg transition flex items-center justify-center text-xs"
+                                        :class="rule.active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'">
+                                    <i :class="rule.active ? 'fas fa-toggle-on' : 'fas fa-toggle-off'"></i>
+                                </button>
+                                <button @click="editRule(rule)" class="w-8 h-8 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500 hover:text-white transition flex items-center justify-center text-xs">
+                                    <i class="fas fa-pen"></i>
+                                </button>
+                                <button @click="deleteRule(rule.id)" class="w-8 h-8 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition flex items-center justify-center text-xs">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="text-sm text-gray-400">
+                            <span class="font-medium">{{ rule.appliedCount || 0 }}</span> keer toegepast
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Insights Page -->
+        <div v-if="currentPage === 'insights'" class="flex-1 overflow-y-auto p-4 md:p-6">
+            <div class="max-w-7xl mx-auto">
+                <div class="mb-6">
+                    <div class="flex items-center gap-3 mb-2">
+                        <h2 class="text-2xl font-bold text-white">Insights</h2>
+                        <div class="relative">
+                            <button @click="showAccountFilter = !showAccountFilter"
+                                    data-account-filter
+                                    class="px-3 py-1 text-sm rounded-lg transition flex items-center gap-2"
+                                    :class="selectedAccount ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'">
+                                <i class="fas fa-university"></i>
+                                <span>{{ selectedAccount || 'Alle rekeningen' }}</span>
+                                <i class="fas fa-chevron-down text-xs"></i>
+                            </button>
+                            <div v-if="showAccountFilter" data-account-dropdown class="absolute top-full left-0 mt-1 bg-dark_paper border border-gray-600 rounded-lg shadow-lg z-10 min-w-[200px]">
+                                <div class="p-2">
+                                    <button @click="setSelectedAccount('')" class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition">
+                                        Alle rekeningen
+                                    </button>
+                                    <div v-for="account in availableAccounts" :key="account" class="border-t border-gray-700 first:border-t-0">
+                                        <button @click="setSelectedAccount(account)" class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition">
+                                            {{ account || 'Geen rekening' }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="text-gray-400">Statistische inzichten in je financiële gedrag</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                    <!-- Monthly Trend Chart -->
+                    <div class="bg-dark_paper p-6 rounded-xl border border-gray-700">
+                        <h3 class="text-lg font-semibold text-white mb-4">Maandelijkse Trend</h3>
+                        <div class="relative h-[300px] w-full overflow-hidden">
+                            <canvas id="monthlyTrendChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Category Distribution -->
+                    <div class="bg-dark_paper p-6 rounded-xl border border-gray-700">
+                        <h3 class="text-lg font-semibold text-white mb-4">Uitgaven per Categorie</h3>
+                        <div class="relative h-[300px] w-full overflow-hidden">
+                            <canvas id="categoryPieChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Income vs Expenses -->
+                    <div class="bg-dark_paper p-6 rounded-xl border border-gray-700">
+                        <h3 class="text-lg font-semibold text-white mb-4">Inkomsten vs Uitgaven</h3>
+                        <div class="relative h-[300px] w-full overflow-hidden">
+                            <canvas id="incomeExpenseChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Top Spending Categories -->
+                    <div class="bg-dark_paper p-6 rounded-xl border border-gray-700">
+                        <h3 class="text-lg font-semibold text-white mb-4">Top Uitgave Categorieën</h3>
+                        <div class="space-y-3">
+                            <div v-for="category in topSpendingCategories" :key="category.name"
+                                 class="flex items-center justify-between p-3 bg-dark/50 rounded-lg">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center"
+                                         :style="{ backgroundColor: category.color + '20', color: category.color }">
+                                        <i class="fas fa-tag"></i>
+                                    </div>
+                                    <span class="text-white font-medium">{{ category.name }}</span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-red-400 font-bold">€{{ formatAmount(category.amount) }}</div>
+                                    <div class="text-xs text-gray-400">{{ category.percentage }}%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Details Page -->
+        <div v-if="currentPage === 'details'" class="flex-1 overflow-y-auto p-4 md:p-6">
+            <div class="max-w-7xl mx-auto">
+                <div class="mb-6">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="flex items-center gap-3 mb-2">
+                                <h2 class="text-2xl font-bold text-white">Details</h2>
+                                <div class="relative">
+                                    <button @click="showAccountFilter = !showAccountFilter"
+                                            data-account-filter
+                                            class="px-3 py-1 text-sm rounded-lg transition flex items-center gap-2"
+                                            :class="selectedAccount ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'">
+                                        <i class="fas fa-university"></i>
+                                        <span>{{ selectedAccount || 'Alle rekeningen' }}</span>
+                                        <i class="fas fa-chevron-down text-xs"></i>
+                                    </button>
+                                    <div v-if="showAccountFilter" data-account-dropdown class="absolute top-full left-0 mt-1 bg-dark_paper border border-gray-600 rounded-lg shadow-lg z-10 min-w-[200px]">
+                                        <div class="p-2">
+                                            <button @click="setSelectedAccount('')" class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition">
+                                                Alle rekeningen
+                                            </button>
+                                            <div v-for="account in availableAccounts" :key="account" class="border-t border-gray-700 first:border-t-0">
+                                                <button @click="setSelectedAccount(account)" class="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 rounded transition">
+                                                    {{ account || 'Geen rekening' }}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <p class="text-gray-400">Gedetailleerd overzicht per categorie over de laatste 6 maanden</p>
+                        </div>
+                        <button @click="refreshDetailsData"
+                                class="px-4 py-2 bg-primary hover:bg-indigo-600 text-white font-medium rounded-lg transition flex items-center gap-2">
+                            <i class="fas fa-sync-alt"></i>
+                            Vernieuwen
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Income Section -->
+                <div v-if="incomeData && incomeData.categories.length > 0" class="bg-dark_paper rounded-xl border border-green-700 overflow-hidden mb-6">
+                    <div class="bg-green-800/20 px-4 py-2 border-b border-green-700">
+                        <h3 class="text-green-400 font-semibold flex items-center gap-2">
+                            <i class="fas fa-arrow-up"></i> Inkomsten
+                        </h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-800/30">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
+                                    <th v-for="month in incomeData.months" :key="month.label"
+                                        class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]">
+                                        {{ month.fullLabel }}
+                                    </th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Totaal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="category in incomeData.categories" :key="category"
+                                    class="border-t border-gray-700/30 hover:bg-gray-800/20">
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-6 h-6 rounded flex items-center justify-center"
+                                                 :style="{ backgroundColor: getCategoryColor(category) }">
+                                                <i class="fas fa-tag text-white text-xs"></i>
+                                            </div>
+                                            <span class="text-white font-medium">{{ category }}</span>
+                                        </div>
+                                    </td>
+                                    <td v-for="month in incomeData.months" :key="month.label"
+                                        class="px-4 py-3 text-right">
+                                        <span class="text-green-400">
+                                            €{{ formatAmount(incomeData.data[category]?.[month.label] || 0) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <span class="text-green-400 font-semibold">
+                                            €{{ formatAmount(incomeData.data[category]?.total || 0) }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                <!-- Income Total Row -->
+                                <tr class="border-t-2 border-green-600 bg-green-800/10">
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-6 h-6 rounded bg-green-600 flex items-center justify-center">
+                                                <i class="fas fa-plus text-white text-xs"></i>
+                                            </div>
+                                            <span class="text-green-400 font-bold">INKOMSTEN TOTAAL</span>
+                                        </div>
+                                    </td>
+                                    <td v-for="month in incomeData.months" :key="month.label"
+                                        class="px-4 py-3 text-right">
+                                        <span class="text-green-400 font-semibold">
+                                            €{{ formatAmount(this.getMonthlyIncomeTotal(month)) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <span class="text-green-400 font-bold text-lg">
+                                            €{{ formatAmount(this.getIncomeGrandTotal()) }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Expenses Section -->
+                <div v-if="expenseData && expenseData.categories.length > 0" class="bg-dark_paper rounded-xl border border-red-700 overflow-hidden mb-6">
+                    <div class="bg-red-800/20 px-4 py-2 border-b border-red-700">
+                        <h3 class="text-red-400 font-semibold flex items-center gap-2">
+                            <i class="fas fa-arrow-down"></i> Uitgaven
+                        </h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-800/30">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
+                                    <th v-for="month in expenseData.months" :key="month.label"
+                                        class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]">
+                                        {{ month.fullLabel }}
+                                    </th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Totaal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="category in expenseData.categories" :key="category"
+                                    class="border-t border-gray-700/30 hover:bg-gray-800/20">
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-6 h-6 rounded flex items-center justify-center"
+                                                 :style="{ backgroundColor: getCategoryColor(category) }">
+                                                <i class="fas fa-tag text-white text-xs"></i>
+                                            </div>
+                                            <span class="text-white font-medium">{{ category }}</span>
+                                        </div>
+                                    </td>
+                                    <td v-for="month in expenseData.months" :key="month.label"
+                                        class="px-4 py-3 text-right">
+                                        <span class="text-red-400">
+                                            €{{ formatAmount(Math.abs(expenseData.data[category]?.[month.label] || 0)) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <span class="text-red-400 font-semibold">
+                                            €{{ formatAmount(Math.abs(expenseData.data[category]?.total || 0)) }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                <!-- Expense Total Row -->
+                                <tr class="border-t-2 border-red-600 bg-red-800/10">
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-6 h-6 rounded bg-red-600 flex items-center justify-center">
+                                                <i class="fas fa-minus text-white text-xs"></i>
+                                            </div>
+                                            <span class="text-red-400 font-bold">UITGAVEN TOTAAL</span>
+                                        </div>
+                                    </td>
+                                    <td v-for="month in expenseData.months" :key="month.label"
+                                        class="px-4 py-3 text-right">
+                                        <span class="text-red-400 font-semibold">
+                                            €{{ formatAmount(Math.abs(this.getMonthlyExpenseTotal(month))) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <span class="text-red-400 font-bold text-lg">
+                                            €{{ formatAmount(Math.abs(this.getExpenseGrandTotal())) }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Net Result Section -->
+                <div v-if="(incomeData && incomeData.categories.length > 0) || (expenseData && expenseData.categories.length > 0)" class="bg-dark_paper rounded-xl border border-primary overflow-hidden">
+                    <div class="bg-primary/20 px-4 py-2 border-b border-primary">
+                        <h3 class="text-primary font-semibold flex items-center gap-2">
+                            <i class="fas fa-balance-scale"></i> Netto Resultaat (Inkomsten - Uitgaven)
+                        </h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead class="bg-gray-800/30">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Periode</th>
+                                    <th v-for="month in (incomeData?.months || expenseData?.months)" :key="month.label"
+                                        class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase min-w-[100px]">
+                                        {{ month.fullLabel }}
+                                    </th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Totaal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr class="border-t border-primary/30 bg-primary/5">
+                                    <td class="px-4 py-3">
+                                        <div class="flex items-center gap-3">
+                                            <div class="w-6 h-6 rounded bg-primary flex items-center justify-center">
+                                                <i class="fas fa-equals text-white text-xs"></i>
+                                            </div>
+                                            <span class="text-primary font-bold">NETTO RESULTAAT</span>
+                                        </div>
+                                    </td>
+                                    <td v-for="month in (incomeData?.months || expenseData?.months)" :key="month.label"
+                                        class="px-4 py-3 text-right">
+                                        <span :class="this.getMonthlyNetResult(month) >= 0 ? 'text-green-400' : 'text-red-400'" class="font-semibold">
+                                            €{{ formatAmount(this.getMonthlyNetResult(month)) }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <span :class="this.getNetGrandTotal() >= 0 ? 'text-green-400' : 'text-red-400'" class="font-bold text-lg">
+                                            €{{ formatAmount(this.getNetGrandTotal()) }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Empty state -->
+                <div v-else class="bg-dark_paper rounded-xl border border-gray-700 p-8 text-center">
+                    <i class="fas fa-table text-4xl text-gray-600 mb-4"></i>
+                    <h3 class="text-xl font-semibold text-white mb-2">Geen data beschikbaar</h3>
+                    <p class="text-gray-400 mb-4">Importeer eerst wat transacties om de details tabel te zien.</p>
+                    <button @click="changePage('transactions')" class="bg-primary hover:opacity-90 text-white px-6 py-2 rounded-lg transition">
+                        <i class="fas fa-upload mr-2"></i> Naar Transacties
+                    </button>
+                </div>
+
+                <!-- Summary Stats -->
+                <div v-if="(incomeData && incomeData.categories.length > 0) || (expenseData && expenseData.categories.length > 0)" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+                    <div class="bg-dark_paper p-4 rounded-xl border border-green-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-400">Inkomsten Categorien</p>
+                                <p class="text-2xl font-bold text-green-400">{{ incomeData?.categories?.length || 0 }}</p>
+                            </div>
+                            <div class="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-arrow-up text-green-400"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-dark_paper p-4 rounded-xl border border-red-700">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-400">Uitgaven Categorien</p>
+                                <p class="text-2xl font-bold text-red-400">{{ expenseData?.categories?.length || 0 }}</p>
+                            </div>
+                            <div class="w-10 h-10 bg-red-500/20 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-arrow-down text-red-400"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-dark_paper p-4 rounded-xl border border-primary">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-400">Totale Inkomsten</p>
+                                <p class="text-2xl font-bold text-green-400">€{{ formatAmount(this.getIncomeGrandTotal()) }}</p>
+                            </div>
+                            <div class="w-10 h-10 bg-green-500/20 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-plus text-green-400"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-dark_paper p-4 rounded-xl border border-primary">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-gray-400">Totale Uitgaven</p>
+                                <p class="text-2xl font-bold text-red-400">€{{ formatAmount(this.getExpenseGrandTotal()) }}</p>
+                            </div>
+                            <div class="w-10 h-10 bg-red-500/20 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-minus text-red-400"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Settings Modal -->
+    <div v-if="showSettingsModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="showSettingsModal = false">
+        <div class="bg-dark_paper w-full max-w-md rounded-2xl border border-gray-700 shadow-2xl p-6">
+            <h3 class="font-bold text-xl text-white mb-6 flex items-center gap-2">
+                <i class="fas fa-cog text-primary"></i> Instellingen
+            </h3>
+
+            <div class="space-y-6">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-3">Accent Kleur</label>
+                    <div class="flex gap-3 flex-wrap">
+                        <button v-for="color in themeColors" :key="color.val"
+                                @click="setThemeColor(color)"
+                                class="w-8 h-8 rounded-full border-2 transition-transform hover:scale-110"
+                                :class="settings.themeColor === color.val ? 'border-white scale-110' : 'border-transparent'"
+                                :style="{ backgroundColor: `rgb(${color.rgb})` }">
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-white font-medium">Offline Simulatie</div>
+                        <div class="text-xs text-gray-400">Test offline functionaliteit</div>
+                    </div>
+                    <button @click="toggleOfflineMode" class="w-12 h-6 rounded-full transition-colors relative"
+                            :class="isOfflineMode ? 'bg-orange-500' : 'bg-gray-700'">
+                        <div class="w-4 h-4 bg-white rounded-full absolute top-1 transition-all"
+                             :class="isOfflineMode ? 'left-7' : 'left-1'"></div>
+                    </button>
+                </div>
+
+            </div>
+
+            <div class="mt-8 flex justify-end gap-2">
+                <button @click="logout" class="bg-red-500/20 hover:bg-red-500/40 text-red-400 px-6 py-2 rounded-lg transition">Uitloggen</button>
+                <button @click="showSettingsModal = false" class="bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded-lg transition">Sluiten</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Transaction Modal -->
+    <div v-if="showTransactionModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="closeTransactionModal">
+        <div class="bg-dark_paper w-full max-w-md rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
+                <h3 class="font-bold text-lg text-white">
+                    {{ editingTransaction ? 'Transactie Bewerken' : 'Nieuwe Transactie' }}
+                </h3>
+                <button @click="closeTransactionModal" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="p-6 space-y-4 overflow-y-auto">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Datum</label>
+                    <input v-model="transactionForm.date" type="date" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Omschrijving</label>
+                    <input v-model="transactionForm.description" type="text" placeholder="Bijv. Loon, Boodschappen..." class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Bedrag (€)</label>
+                    <input v-model="transactionForm.amount" type="number" step="0.01" placeholder="0.00" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Naam</label>
+                    <input v-model="transactionForm.name" type="text" placeholder="Bijv. werkgever naam..." class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Omschrijving</label>
+                    <input v-model="transactionForm.description" type="text" placeholder="Bijv. salaris, boodschappen..." class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Van/Naar</label>
+                    <input v-model="transactionForm.account" type="text" placeholder="Bijv. werkgever, winkel..." class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Categorie</label>
+                    <select v-model="transactionForm.category" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                        <option v-for="category in categories" :key="category.id" :value="category.name">{{ category.name }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="p-5 border-t border-gray-700 flex gap-3 bg-gray-800/50">
+                <button @click="closeTransactionModal" class="flex-1 py-3 text-gray-400 font-medium hover:bg-gray-700 rounded-xl transition">Annuleren</button>
+                <button @click="saveTransaction" class="flex-1 py-3 bg-primary hover:bg-indigo-600 text-white font-bold rounded-xl shadow-lg transition">Opslaan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Edit Modal -->
+    <div v-if="showBulkEditModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="closeBulkEditModal">
+        <div class="bg-dark_paper w-full max-w-md rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
+                <h3 class="font-bold text-lg text-white">Bulk Bewerken</h3>
+                <button @click="closeBulkEditModal" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="p-6 space-y-4 overflow-y-auto">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nieuwe Categorie</label>
+                    <select v-model="bulkEditForm.category" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                        <option value="">Niet wijzigen</option>
+                        <option v-for="category in categories" :key="category.id" :value="category.name">{{ category.name }}</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nieuwe Naam</label>
+                    <input v-model="bulkEditForm.name" type="text" placeholder="Laat leeg om niet te wijzigen" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nieuwe Omschrijving</label>
+                    <input v-model="bulkEditForm.description" type="text" placeholder="Laat leeg om niet te wijzigen" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nieuwe Van/Naar</label>
+                    <input v-model="bulkEditForm.account" type="text" placeholder="Laat leeg om niet te wijzigen" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+            </div>
+
+            <div class="p-5 border-t border-gray-700 flex gap-3 bg-gray-800/50">
+                <button @click="closeBulkEditModal" class="flex-1 py-3 text-gray-400 font-medium hover:bg-gray-700 rounded-xl transition">Annuleren</button>
+                <button @click="applyBulkEdit" class="flex-1 py-3 bg-primary hover:bg-indigo-600 text-white font-bold rounded-xl shadow-lg transition">Toepassen</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Category Modal -->
+    <div v-if="showCategoryModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="closeCategoryModal">
+        <div class="bg-dark_paper w-full max-w-md rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
+                <h3 class="font-bold text-lg text-white">
+                    {{ editingCategory ? 'Categorie Bewerken' : 'Nieuwe Categorie' }}
+                </h3>
+                <button @click="closeCategoryModal" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="p-6 space-y-4 overflow-y-auto">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Naam</label>
+                    <input v-model="categoryForm.name" type="text" placeholder="Bijv. Boodschappen, Vervoer..." class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Kleur</label>
+                    <input v-model="categoryForm.color" type="color" class="w-full h-12 rounded-lg cursor-pointer bg-transparent border border-gray-600 p-1">
+                </div>
+            </div>
+
+            <div class="p-5 border-t border-gray-700 flex gap-3 bg-gray-800/50">
+                <button @click="closeCategoryModal" class="flex-1 py-3 text-gray-400 font-medium hover:bg-gray-700 rounded-xl transition">Annuleren</button>
+                <button @click="saveCategory" class="flex-1 py-3 bg-primary hover:bg-indigo-600 text-white font-bold rounded-xl shadow-lg transition">Opslaan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Rule Modal -->
+    <div v-if="showRuleModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="closeRuleModal">
+        <div class="bg-dark_paper w-full max-w-md rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
+                <h3 class="font-bold text-lg text-white">
+                    {{ editingRule ? 'Regel Bewerken' : 'Nieuwe Regel' }}
+                </h3>
+                <button @click="closeRuleModal" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+
+            <div class="p-6 space-y-4 overflow-y-auto">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Regel Naam</label>
+                    <input v-model="ruleForm.name" type="text" placeholder="Bijv. Supermarkt regel..." class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div class="border-t border-gray-700 pt-4">
+                    <h4 class="text-sm font-semibold text-white mb-3">Voorwaarde</h4>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Veld</label>
+                            <select v-model="ruleForm.condition.field" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                                <option value="description">Omschrijving</option>
+                                <option value="amount">Bedrag</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Operator</label>
+                            <select v-model="ruleForm.condition.operator" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                                <option value="contains">bevat</option>
+                                <option value="equals">is gelijk aan</option>
+                                <option value="starts_with">begint met</option>
+                                <option value="greater_than">groter dan</option>
+                                <option value="less_than">kleiner dan</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Waarde</label>
+                            <input v-model="ruleForm.condition.value" type="text" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border-t border-gray-700 pt-4">
+                    <h4 class="text-sm font-semibold text-white mb-3">Actie</h4>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Type</label>
+                            <select v-model="ruleForm.action.type" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                                <option value="set_category">Stel categorie in</option>
+                                <option value="set_description">Stel omschrijving in</option>
+                            </select>
+                        </div>
+                        <div v-if="ruleForm.action.type === 'set_category'">
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Categorie</label>
+                            <select v-model="ruleForm.action.value" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                                <option v-for="category in categories" :key="category.id" :value="category.name">{{ category.name }}</option>
+                            </select>
+                        </div>
+                        <div v-if="ruleForm.action.type === 'set_description'">
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nieuwe Omschrijving</label>
+                            <input v-model="ruleForm.action.value" type="text" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-5 border-t border-gray-700 flex gap-3 bg-gray-800/50">
+                <button @click="closeRuleModal" class="flex-1 py-3 text-gray-400 font-medium hover:bg-gray-700 rounded-xl transition">Annuleren</button>
+                <button @click="saveRule" class="flex-1 py-3 bg-primary hover:bg-indigo-600 text-white font-bold rounded-xl shadow-lg transition">Opslaan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CSV Import Modal -->
+    <div v-if="showCsvImportModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="closeCsvImportModal">
+        <div class="bg-dark_paper w-full max-w-2xl rounded-2xl border border-gray-700 shadow-2xl p-6 flex flex-col max-h-[85vh]">
+            <h3 class="font-bold text-lg text-white mb-2 flex items-center gap-2">
+                <i class="fas fa-file-import text-primary"></i> CSV Import
+            </h3>
+            <p class="text-gray-400 text-sm mb-4">Importeer transacties uit een CSV bestand. Zorg dat de kolommen correct zijn ingesteld.</p>
+
+            <!-- File Selection -->
+            <div class="bg-gray-800/50 p-4 rounded-xl border border-gray-700 mb-4">
+                <div class="flex items-center gap-4">
+                    <input type="file" ref="csvFileInput" class="hidden" accept=".csv" @change="handleCsvFileSelect">
+                    <button @click="$refs.csvFileInput.click()" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white px-4 py-3 rounded-lg transition flex items-center justify-center gap-2">
+                        <i class="fas fa-file-csv"></i>
+                        {{ selectedCsvFile ? selectedCsvFile.name : 'Selecteer CSV bestand...' }}
+                    </button>
+                    <button v-if="selectedCsvFile" @click="clearCsvFile" class="bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white px-3 py-3 rounded-lg transition">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <p v-if="selectedCsvFile" class="text-xs text-gray-400 mt-2">
+                    Bestand geselecteerd: {{ selectedCsvFile.size }} bytes
+                </p>
+            </div>
+
+            <div class="bg-gray-800/50 p-4 rounded-xl border border-gray-700 mb-4 space-y-3">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Datum Kolom</label>
+                        <select v-model="csvMapping.date" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                            <option value="">Niet importeren</option>
+                            <option v-for="(column, index) in csvColumns" :key="index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Naam</label>
+                        <select v-model="csvMapping.name" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                            <option value="">Niet importeren</option>
+                            <option v-for="(column, index) in csvColumns" :key="index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Omschrijving</label>
+                        <select v-model="csvMapping.description" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                            <option value="">Niet importeren</option>
+                            <option v-for="(column, index) in csvColumns" :key="index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Bedrag</label>
+                        <select v-model="csvMapping.amount" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                            <option value="">Niet importeren</option>
+                            <option v-for="(column, index) in csvColumns" :key="index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Saldo</label>
+                        <select v-model="csvMapping.balance" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                            <option value="">Niet importeren</option>
+                            <option v-for="(column, index) in csvColumns" :key="index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Rekening</label>
+                        <select v-model="csvMapping.account" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                            <option value="">Niet importeren</option>
+                            <option v-for="(column, index) in csvColumns" :key="index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Categorie</label>
+                        <select v-model="csvMapping.category" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                            <option value="">Niet importeren</option>
+                            <option v-for="(column, index) in csvColumns" :key="index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                        </select>
+                    </div>
+                    <div class="flex items-end">
+                        <button @click="autoDetectColumns" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition">
+                            <i class="fas fa-magic mr-2"></i> Auto-Detect
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto bg-dark/50 rounded-lg border border-gray-700/50 p-2 mb-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs text-gray-400">Voorbeeld Data</span>
+                    <span v-if="!selectedCsvFile" class="text-xs text-yellow-400 bg-yellow-500/10 px-2 py-1 rounded">Demo data</span>
+                </div>
+                <table class="w-full text-left text-sm">
+                    <thead>
+                        <tr class="text-gray-500 border-b border-gray-700">
+                            <th class="p-2">Voorbeeld Data</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="(row, i) in csvPreview" :key="i" class="border-b border-gray-700/30 hover:bg-white/5">
+                            <td class="p-2 text-gray-400 text-xs font-mono">{{ row }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-end gap-2">
+                <button @click="closeCsvImportModal" class="px-4 py-2 text-gray-400 hover:text-white transition">Annuleren</button>
+                <button @click="processCsvImport" class="px-6 py-2 bg-primary hover:opacity-90 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
+                    <i class="fas fa-check"></i> Importeren
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="fixed bottom-6 right-6 z-[200] flex flex-col gap-2 pointer-events-none">
+        <transition-group name="fade">
+            <div v-for="toast in toasts" :key="toast.id"
+                 class="pointer-events-auto bg-white text-dark p-4 rounded-xl shadow-2xl flex items-center gap-3 border-l-4 min-w-[300px]"
+                 :class="toast.type === 'error' ? 'border-red-500' : 'border-green-500'">
+                 <i :class="toast.type === 'error' ? 'fa-exclamation-circle text-red-500' : 'fa-check-circle text-green-500'" class="fas text-lg"></i>
+                 <span class="font-medium text-sm">{{ toast.message }}</span>
+            </div>
+        </transition-group>
+    </div>
+
+</div>
+
+<script src="logic.js"></script>
+
+</body>
+</html>
