@@ -34,13 +34,13 @@ function showToast(message, type = 'success') {
 
   window.app.toasts.push(toast);
 
-  // Auto remove after 3 seconds
+  // Auto remove after 4 seconds
   setTimeout(() => {
     const index = window.app.toasts.findIndex(t => t.id === toast.id);
     if (index > -1) {
       window.app.toasts.splice(index, 1);
     }
-  }, 3000);
+  }, 4000);
 }
 
 // ============================================================================
@@ -48,7 +48,7 @@ function showToast(message, type = 'success') {
 // ============================================================================
 
 const APP_NAME = 'financepro';
-const CLIENT_ID = 'user123'; // In productie zou dit dynamisch zijn
+const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
 const API_URL = 'http://10.10.2.20:5000'; // Aanpassen naar juiste server URL
 
 let manager = null;
@@ -840,7 +840,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         return {
           months,
-          categories: categories.filter(cat => cat !== 'Not defined'), // Exclude Not defined from income
+          categories: categories, // Include all categories including 'Not defined'
           data
         };
       },
@@ -1829,14 +1829,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       getIncomeExpenseData() {
         const now = new Date();
-        const timeRangeFilter = this.getTimeRangeFilter();
 
         // Determine number of months based on time range
         let numMonths;
         switch (this.selectedTimeRange) {
           case 'this_month':
+            // For this month, show this month + 5 previous months for context
+            numMonths = 6;
+            break;
           case 'last_month':
-            numMonths = 1;
+            // For last month, show last month + 5 previous months for context
+            numMonths = 6;
             break;
           case 'last_6_months':
             numMonths = 6;
@@ -1848,8 +1851,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const months = [];
+        let startMonthOffset = 0;
+
+        // Adjust start month based on selected time range
+        if (this.selectedTimeRange === 'last_month') {
+          startMonthOffset = 1; // Start from last month
+        }
+
         for (let i = numMonths - 1; i >= 0; i--) {
-          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const date = new Date(now.getFullYear(), now.getMonth() - i - startMonthOffset, 1);
           months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
@@ -1862,19 +1872,22 @@ document.addEventListener('DOMContentLoaded', async () => {
           ? this.transactions.filter(t => t.account === this.selectedAccount)
           : this.transactions;
 
-        // Apply time range filter
-        filteredTransactions = filteredTransactions.filter(t => {
-          const transactionDate = new Date(t.date);
-          return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
-        });
+        // For the income/expense chart, we don't apply additional time filtering
+        // as we want to show the full period selected by the user
 
         const incomeData = new Array(numMonths).fill(0);
         const expenseData = new Array(numMonths).fill(0);
 
+        // Filter transactions to only include those within our calculated months
+        const relevantMonths = months.map(m => ({ year: m.year, month: m.month }));
+
         filteredTransactions.forEach(transaction => {
           const transactionDate = new Date(transaction.date);
-          const monthIndex = last6Months.findIndex(m =>
-            m.month === transactionDate.getMonth() && m.year === transactionDate.getFullYear()
+          const transactionMonth = transactionDate.getMonth();
+          const transactionYear = transactionDate.getFullYear();
+
+          const monthIndex = relevantMonths.findIndex(m =>
+            m.month === transactionMonth && m.year === transactionYear
           );
 
           if (monthIndex !== -1) {
@@ -1886,10 +1899,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         });
 
-        console.log('getIncomeExpenseData result:', { labels: last6Months.map(m => m.label), incomeData, expenseData });
+        console.log('getIncomeExpenseData result:', { labels: months.map(m => m.label), incomeData, expenseData });
 
         return {
-          labels: last6Months.map(m => m.label),
+          labels: months.map(m => m.label),
           datasets: [
             {
               label: 'Inkomsten',
@@ -2632,14 +2645,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         try {
           const csvText = await this.selectedCsvFile.text();
-          const importedTransactions = await this.parseCsvData(csvText);
+          const parseResult = await this.parseCsvData(csvText);
+          const importedTransactions = parseResult.transactions;
+          const csvDuplicateCount = parseResult.duplicateCount;
 
-          if (importedTransactions.length === 0) {
+          if (importedTransactions.length === 0 && csvDuplicateCount === 0) {
             showToast('Geen geldige transacties gevonden. Controleer de kolom mapping.', 'error');
             return;
           }
 
+          if (importedTransactions.length === 0 && csvDuplicateCount > 0) {
+            showToast(`Alle ${csvDuplicateCount} transacties waren al aanwezig (duplicates overgeslagen)`, 'info');
+            this.closeCsvImportModal();
+            return;
+          }
+
           let importedCount = 0;
+          let duplicateCount = 0;
+
           for (const transaction of importedTransactions) {
             try {
               // Apply rules before saving
@@ -2651,7 +2674,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
           }
 
-          showToast(`${importedCount} transacties geïmporteerd`, 'success');
+          if (csvDuplicateCount > 0) {
+            showToast(`${importedCount} transacties geïmporteerd, ${csvDuplicateCount} duplicates overgeslagen`, 'success');
+          } else {
+            showToast(`${importedCount} transacties geïmporteerd`, 'success');
+          }
           this.closeCsvImportModal();
           await this.refreshData();
         } catch (error) {
@@ -2672,6 +2699,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const categoryIndex = this.csvMapping.category !== '' ? parseInt(this.csvMapping.category) : -1;
 
         const transactions = [];
+        let duplicateCount = 0;
 
         for (let i = 1; i < lines.length; i++) { // Skip header
           const columns = lines[i].split(delimiter).map(col => col.replace(/"/g, '').trim());
@@ -2760,7 +2788,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
 
           if (date && !isNaN(amount)) {
-            transactions.push({
+            const newTransaction = {
               date,
               name: nameStr || '',
               description: finalDescription,
@@ -2768,11 +2796,30 @@ document.addEventListener('DOMContentLoaded', async () => {
               balance: balanceStr ? parseFloat(balanceStr.replace(',', '.')) : null,
               category: finalCategory,
               account: accountStr || ''
-            });
+            };
+
+            // Check for duplicates
+            if (!this.isDuplicateTransaction(newTransaction)) {
+              transactions.push(newTransaction);
+            } else {
+              console.log('Skipping duplicate transaction:', newTransaction);
+              duplicateCount++;
+            }
           }
         }
 
-        return transactions;
+        return { transactions, duplicateCount };
+      },
+
+      // Check if a transaction is a duplicate of an existing one
+      isDuplicateTransaction(newTransaction) {
+        return this.transactions.some(existingTransaction => {
+          // Compare key fields for duplication
+          return existingTransaction.date === newTransaction.date &&
+                 existingTransaction.amount === newTransaction.amount &&
+                 existingTransaction.description === newTransaction.description &&
+                 existingTransaction.account === newTransaction.account;
+        });
       },
 
       // ============================================================================

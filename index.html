@@ -1391,10 +1391,18 @@
     <div class="fixed bottom-6 right-6 z-[200] flex flex-col gap-2 pointer-events-none">
         <transition-group name="fade">
             <div v-for="toast in toasts" :key="toast.id"
-                 class="pointer-events-auto bg-white text-dark p-4 rounded-xl shadow-2xl flex items-center gap-3 border-l-4 min-w-[300px]"
-                 :class="toast.type === 'error' ? 'border-red-500' : 'border-green-500'">
-                 <i :class="toast.type === 'error' ? 'fa-exclamation-circle text-red-500' : 'fa-check-circle text-green-500'" class="fas text-lg"></i>
-                 <span class="font-medium text-sm">{{ toast.message }}</span>
+                 class="pointer-events-auto bg-dark_paper text-white p-4 rounded-xl shadow-2xl flex items-center gap-3 border-l-4 min-w-[320px] backdrop-blur-sm"
+                 :class="{
+                   'border-red-500 bg-red-900/90': toast.type === 'error',
+                   'border-green-500 bg-green-900/90': toast.type === 'success',
+                   'border-blue-500 bg-blue-900/90': toast.type === 'info'
+                 }">
+                 <i :class="{
+                   'fa-exclamation-circle text-red-400': toast.type === 'error',
+                   'fa-check-circle text-green-400': toast.type === 'success',
+                   'fa-info-circle text-blue-400': toast.type === 'info'
+                 }" class="fas text-lg"></i>
+                 <span class="font-medium text-sm leading-relaxed">{{ toast.message }}</span>
             </div>
         </transition-group>
     </div>

@@ -1,5 +1,24 @@
 /* FinancePro - Custom Styles */
 
+/* ==========================================================================
+   ANIMATIONS
+   ========================================================================== */
+
+/* Toast fade animations */
+.fade-enter-active, .fade-leave-active {
+  transition: all 0.3s ease;
+}
+
+.fade-enter-from {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.fade-leave-to {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
 /* Dark Theme Colors (Default) */
 :root {
   --dark: #0f0f0f;
