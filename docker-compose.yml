@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  financepro:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    container_name: financepro-app
+    restart: unless-stopped
+    environment:
+      - NGINX_PORT=80

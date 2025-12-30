@@ -1,0 +1,41 @@
+# Version control
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+uitleg_*.md
+
+# Development files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Node modules (if any)
+node_modules/
+
+# Temporary files
+tmp/
+temp/
