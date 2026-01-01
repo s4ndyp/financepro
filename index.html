@@ -80,6 +80,11 @@
                             class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
                         <i class="fas fa-tags mr-3"></i> Categorieën
                     </button>
+                    <button @click="changePage('statistieken')"
+                            :class="currentPage === 'statistieken' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'"
+                            class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
+                        <i class="fas fa-chart-bar mr-3"></i> Statistieken
+                    </button>
                     <button @click="changePage('rules')"
                             :class="currentPage === 'rules' ? 'bg-primary text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'"
                             class="group flex items-center px-2 py-2 text-sm font-medium rounded-xl transition w-full text-left">
@@ -152,6 +157,9 @@
                 </button>
                 <button @click="changePage('categories')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
                     <i class="fas fa-tags mr-3"></i> Categorieën
+                </button>
+                <button @click="changePage('statistieken')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
+                    <i class="fas fa-chart-bar mr-3"></i> Statistieken
                 </button>
                 <button @click="changePage('rules')" class="w-full text-left px-4 py-3 text-gray-300 hover:bg-gray-700 hover:text-white rounded-xl transition">
                     <i class="fas fa-robot mr-3"></i> Regels
@@ -445,9 +453,32 @@
                         <h2 class="text-2xl font-bold text-white mb-2">Categorieën</h2>
                         <p class="text-gray-400">Beheer je uitgave categorieën</p>
                     </div>
-                    <button @click="openAddCategoryModal" class="py-2 px-4 bg-primary hover:opacity-90 text-white font-semibold rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
-                        <i class="fas fa-plus"></i> Nieuwe Categorie
-                    </button>
+                    <div class="flex items-center gap-3">
+                        <!-- Time Range Filter -->
+                        <div class="relative">
+                            <button @click="showTimeRangeFilter = !showTimeRangeFilter"
+                                    data-time-filter
+                                    class="px-3 py-1 text-sm rounded-lg transition flex items-center gap-2 bg-gray-700 text-gray-300 hover:bg-gray-600">
+                                <i class="fas fa-calendar-alt"></i>
+                                <span>{{ timeRangeOptions.find(opt => opt.value === selectedTimeRange)?.label || 'Laatste 12 maanden' }}</span>
+                                <i class="fas fa-chevron-down text-xs"></i>
+                            </button>
+                            <div v-if="showTimeRangeFilter" data-time-dropdown class="absolute top-full right-0 mt-1 bg-dark_paper border border-gray-600 rounded-lg shadow-lg z-10 min-w-[180px]">
+                                <div class="p-2">
+                                    <div v-for="option in timeRangeOptions" :key="option.value" class="border-t border-gray-700 first:border-t-0">
+                                        <button @click="setSelectedTimeRange(option.value)"
+                                                :class="selectedTimeRange === option.value ? 'bg-primary/20 text-primary' : 'text-gray-300 hover:bg-gray-700'"
+                                                class="w-full text-left px-3 py-2 rounded-lg transition">
+                                            {{ option.label }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <button @click="openAddCategoryModal" class="py-2 px-4 bg-primary hover:opacity-90 text-white font-semibold rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
+                            <i class="fas fa-plus"></i> Nieuwe Categorie
+                        </button>
+                    </div>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -487,7 +518,46 @@
                                     €0,00
                                 </div>
                             </div>
-                            <p class="text-xs text-gray-400 mt-1">Dit jaar</p>
+                            <p class="text-xs text-gray-400 mt-1">{{ timeRangeOptions.find(opt => opt.value === selectedTimeRange)?.label || 'Laatste 12 maanden' }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistieken Page -->
+        <div v-if="currentPage === 'statistieken'" class="flex-1 overflow-y-auto p-4 md:p-6">
+            <div class="max-w-7xl mx-auto">
+                <div class="mb-6">
+                    <h2 class="text-2xl font-bold text-white mb-2">Statistieken</h2>
+                    <p class="text-gray-400">Grafieken per categorie van inkomsten minus uitgaven over de afgelopen 12 maanden</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div v-for="chart in categoryCharts" :key="chart.category"
+                         class="bg-dark_paper p-6 rounded-xl border border-gray-700">
+                        <h3 class="text-lg font-semibold text-white mb-4 flex items-center gap-3">
+                            <div class="w-4 h-4 rounded" :style="{ backgroundColor: chart.color }"></div>
+                            {{ chart.category }}
+                        </h3>
+                        <div class="relative h-[250px] w-full">
+                            <canvas :id="'category-chart-' + chart.category.replace(/\s+/g, '-').toLowerCase()"></canvas>
+                        </div>
+                        <div class="mt-4 text-sm text-gray-400">
+                            <div class="flex justify-between items-center">
+                                <span>Totaal afgelopen jaar:</span>
+                                <div class="flex gap-4">
+                                    <span class="text-red-400">
+                                        -€{{ formatAmount(chart.totalExpenses) }}
+                                    </span>
+                                    <span class="text-green-400">
+                                        +€{{ formatAmount(chart.totalIncome) }}
+                                    </span>
+                                    <span :class="chart.netTotal >= 0 ? 'text-green-400' : 'text-red-400'">
+                                        = €{{ formatAmount(chart.netTotal) }}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -660,13 +730,12 @@
                             <thead class="bg-gray-800/30">
                                 <tr>
                                     <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
+                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Budget</th>
                                     <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Deze maand</th>
                                     <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Vorige maand</th>
                                     <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Gem. afgelopen jaar</th>
                                     <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Gem. 6 maanden</th>
                                     <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Gem. vorig jaar</th>
-                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Hoogste maand</th>
-                                    <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Laagste maand</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -681,27 +750,30 @@
                                             <span class="text-white font-medium">{{ category }}</span>
                                         </div>
                                     </td>
+                                    <td class="px-4 py-3 text-right">
+                                        <input type="number" step="0.01" min="0"
+                                               v-model.number="budgetProxy[category]"
+                                               class="w-20 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-right text-white text-sm focus:border-primary outline-none">
+                                    </td>
                                     <td class="px-4 py-3 text-right"
-                                        :class="stats.isThisMonthHigher ? 'text-red-400' : 'text-green-400'">
+                                        :class="getAmountColor(stats.thisMonth, getCategoryBudget(category))">
                                         €{{ formatAmount(stats.thisMonth) }}
                                     </td>
-                                    <td class="px-4 py-3 text-right text-white">
+                                    <td class="px-4 py-3 text-right"
+                                        :class="getAmountColor(stats.lastMonth, getCategoryBudget(category))">
                                         €{{ formatAmount(stats.lastMonth) }}
                                     </td>
-                                    <td class="px-4 py-3 text-right text-white">
+                                    <td class="px-4 py-3 text-right"
+                                        :class="getAmountColor(stats.avgLast12Months, getCategoryBudget(category))">
                                         €{{ formatAmount(stats.avgLast12Months) }}
                                     </td>
-                                    <td class="px-4 py-3 text-right text-white">
+                                    <td class="px-4 py-3 text-right"
+                                        :class="getAmountColor(stats.avgLast6Months, getCategoryBudget(category))">
                                         €{{ formatAmount(stats.avgLast6Months) }}
                                     </td>
-                                    <td class="px-4 py-3 text-right text-white">
+                                    <td class="px-4 py-3 text-right"
+                                        :class="getAmountColor(stats.avgPreviousYear, getCategoryBudget(category))">
                                         €{{ formatAmount(stats.avgPreviousYear) }}
-                                    </td>
-                                    <td class="px-4 py-3 text-right text-red-400">
-                                        €{{ formatAmount(stats.highestMonth) }}
-                                    </td>
-                                    <td class="px-4 py-3 text-right text-green-400">
-                                        €{{ formatAmount(stats.lowestMonth) }}
                                     </td>
                                 </tr>
                             </tbody>

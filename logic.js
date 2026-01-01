@@ -272,6 +272,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Insights data
         topSpendingCategories: [],
 
+        // Category budgets (stored in local storage)
+        categoryBudgets: {},
+
+        // Category charts instances
+        categoryChartsInstances: [],
+
         // Toast notifications
         toasts: []
       };
@@ -396,6 +402,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         return this.getCategoryStatistics();
       },
 
+      // Category charts for statistieken page
+      categoryCharts() {
+        return this.getCategoryCharts();
+      },
+
       // Left and right category groups for dashboard
       leftCategoryGroups() {
         const groups = this.groupTransactionsByCategory();
@@ -405,6 +416,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       rightCategoryGroups() {
         const groups = this.groupTransactionsByCategory();
         return groups.slice(Math.ceil(groups.length / 2));
+      },
+
+      // Proxy for category budgets to ensure Vue reactivity
+      budgetProxy() {
+        return new Proxy(this.categoryBudgets, {
+          get: (target, prop) => {
+            return target[prop] || 0;
+          },
+          set: (target, prop, value) => {
+            const budget = parseFloat(value) || 0;
+            this.$set(target, prop, budget);
+
+            // Save to local storage
+            const savedBudgets = { ...target };
+            localStorage.setItem('financepro_category_budgets', JSON.stringify(savedBudgets));
+            return true;
+          }
+        });
       }
     },
 
@@ -424,6 +453,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       if (this.accountBalanceChart) {
         this.accountBalanceChart.destroy();
+      }
+      // Clean up category charts
+      if (this.categoryChartsInstances) {
+        this.categoryChartsInstances.forEach(chart => chart.destroy());
       }
     },
 
@@ -445,6 +478,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           // In a real app, this would validate against the server
           this.isAuthenticated = true;
           await this.refreshData();
+          // Load category budgets after data refresh
+          this.loadCategoryBudgets();
           showToast('Succesvol ingelogd', 'success');
         } catch (error) {
           console.error('Login error:', error);
@@ -535,6 +570,15 @@ document.addEventListener('DOMContentLoaded', async () => {
           console.log('Details page accessed');
           // Details data is computed and doesn't need manual refresh
         }
+
+        // Render category charts when navigating to statistieken page
+        if (page === 'statistieken') {
+          this.$nextTick(() => {
+            setTimeout(() => {
+              this.renderCategoryCharts();
+            }, 100);
+          });
+        }
       },
 
       // ============================================================================
@@ -566,6 +610,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else if (this.currentPage === 'details') {
           // Force update of computed properties
           this.$forceUpdate();
+        } else if (this.currentPage === 'categories') {
+          // Update category statistics for the new time range
+          this.updateCategoryStats();
         }
       },
 
@@ -580,19 +627,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
             break;
           case 'last_month':
-            // Vorige maand: volledige vorige maand
-            const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            startDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
-            endDate = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0, 23, 59, 59);
+            // Vorige maand: volledige vorige maand (altijd de maand voor de huidige)
+            const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            startDate = new Date(lastMonthDate.getFullYear(), lastMonthDate.getMonth(), 1);
+            endDate = new Date(lastMonthDate.getFullYear(), lastMonthDate.getMonth() + 1, 0, 23, 59, 59);
             break;
           case 'last_6_months':
-            startDate = new Date(now.getFullYear(), now.getMonth() - 6, 1);
-            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+            // Laatste 6 VOLLEDIGE maanden zonder de huidige maand
+            // Bijv. als het nu februari 2026 is: van juli 2025 tot januari 2026
+            const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+            startDate = new Date(sixMonthsAgo.getFullYear(), sixMonthsAgo.getMonth(), 1);
+            // Eindigt aan het einde van de vorige maand (januari als het nu februari is)
+            const endMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            endDate = new Date(endMonth.getFullYear(), endMonth.getMonth() + 1, 0, 23, 59, 59);
             break;
           case 'last_12_months':
           default:
-            startDate = new Date(now.getFullYear(), now.getMonth() - 12, 1);
-            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+            // Laatste 12 VOLLEDIGE maanden zonder de huidige maand
+            // Bijv. als het nu februari 2026 is: van februari 2025 tot januari 2026
+            const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+            startDate = new Date(twelveMonthsAgo.getFullYear(), twelveMonthsAgo.getMonth(), 1);
+            // Eindigt aan het einde van de vorige maand
+            const endMonth12 = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            endDate = new Date(endMonth12.getFullYear(), endMonth12.getMonth() + 1, 0, 23, 59, 59);
             break;
         }
 
@@ -659,7 +716,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         this.monthlyIncome = monthlyIncome;
         this.monthlyExpenses = monthlyExpenses;
-        this.monthlyBalance = monthlyIncome - monthlyExpenses;
+
+        // Get balance from the most recent transaction
+        const sortedTransactions = [...this.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
+        const latestTransaction = sortedTransactions.find(t => t.balance !== null && t.balance !== undefined);
+        this.monthlyBalance = latestTransaction ? latestTransaction.balance : 0;
 
         // Get recent transactions
         this.recentTransactions = [...this.transactions]
@@ -715,8 +776,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const months = [];
-        for (let i = numMonths - 1; i >= 0; i--) {
-          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        // Calculate months based on the actual time range filter dates
+        const startDate = new Date(timeRangeFilter.startDate);
+        for (let i = 0; i < numMonths; i++) {
+          const date = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
           months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
@@ -790,8 +853,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const months = [];
-        for (let i = numMonths - 1; i >= 0; i--) {
-          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        // Calculate months based on the actual time range filter dates
+        const startDate = new Date(timeRangeFilter.startDate);
+        for (let i = 0; i < numMonths; i++) {
+          const date = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
           months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
@@ -813,7 +878,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Get income categories (amount >= 0)
         const incomeTransactions = filteredTransactions.filter(t => t.amount >= 0);
-        const categories = [...new Set(incomeTransactions.map(t => t.category))].sort();
+        // Use current categories that have income transactions
+        const categories = this.categories
+          .filter(cat => incomeTransactions.some(t => t.category === cat.name))
+          .map(cat => cat.name)
+          .sort();
 
         // Create data structure
         const data = {};
@@ -866,8 +935,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const months = [];
-        for (let i = numMonths - 1; i >= 0; i--) {
-          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        // Calculate months based on the actual time range filter dates
+        const startDate = new Date(timeRangeFilter.startDate);
+        for (let i = 0; i < numMonths; i++) {
+          const date = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
           months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
@@ -889,7 +960,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Get expense categories (amount < 0)
         const expenseTransactions = filteredTransactions.filter(t => t.amount < 0);
-        const categories = [...new Set(expenseTransactions.map(t => t.category))].sort();
+        // Use current categories that have expense transactions
+        const categories = this.categories
+          .filter(cat => expenseTransactions.some(t => t.category === cat.name))
+          .map(cat => cat.name)
+          .sort();
 
         // Create data structure
         const data = {};
@@ -1031,27 +1106,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
 
       updateCategoryStats() {
+        // Get time range filter to determine which transactions to include
+        const timeRangeFilter = this.getTimeRangeFilter();
+
         // Add transaction count and total amount to each category
         this.categories.forEach(category => {
           const categoryTransactions = this.transactions.filter(t => t.category === category.name);
-          const currentYearTransactions = categoryTransactions.filter(t => {
-            const transactionYear = new Date(t.date).getFullYear();
-            return transactionYear === new Date().getFullYear();
+
+          // Filter transactions by the selected time range
+          const timeRangeTransactions = categoryTransactions.filter(t => {
+            const transactionDate = new Date(t.date);
+            return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
           });
 
           category.transactionCount = categoryTransactions.length;
 
-          // Calculate income and expense totals separately
-          category.incomeTotal = currentYearTransactions
+          // Calculate income and expense totals for the selected time range
+          category.incomeTotal = timeRangeTransactions
             .filter(t => t.amount >= 0)
             .reduce((sum, t) => sum + t.amount, 0);
 
-          category.expenseTotal = Math.abs(currentYearTransactions
+          category.expenseTotal = Math.abs(timeRangeTransactions
             .filter(t => t.amount < 0)
             .reduce((sum, t) => sum + t.amount, 0));
 
           // Keep totalAmount for backward compatibility (absolute value)
-          category.totalAmount = currentYearTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
+          category.totalAmount = timeRangeTransactions.reduce((sum, t) => sum + Math.abs(t.amount), 0);
         });
       },
 
@@ -1326,6 +1406,66 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       },
 
+      renderCategoryCharts() {
+        // Destroy existing category charts
+        if (this.categoryChartsInstances) {
+          this.categoryChartsInstances.forEach(chart => chart.destroy());
+        }
+        this.categoryChartsInstances = [];
+
+        const charts = this.categoryCharts;
+        charts.forEach(chart => {
+          const canvasId = 'category-chart-' + chart.category.replace(/\s+/g, '-').toLowerCase();
+          const ctx = document.getElementById(canvasId);
+          if (!ctx) return;
+
+          const chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels: chart.labels,
+              datasets: [{
+                label: 'Uitgaven',
+                data: chart.expenseData,
+                backgroundColor: '#ef4444', // Red for expenses
+                borderColor: '#ef4444',
+                borderWidth: 1
+              }, {
+                label: 'Inkomsten',
+                data: chart.incomeData,
+                backgroundColor: '#10b981', // Green for income
+                borderColor: '#10b981',
+                borderWidth: 1
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  ticks: { color: '#9ca3af' },
+                  grid: { color: '#374151' }
+                },
+                y: {
+                  ticks: {
+                    color: '#9ca3af',
+                    callback: (value) => '€' + this.formatAmount(value)
+                  },
+                  grid: { color: '#374151' }
+                }
+              },
+              plugins: {
+                legend: {
+                  labels: { color: '#9ca3af' },
+                  position: 'top'
+                }
+              }
+            }
+          });
+
+          this.categoryChartsInstances.push(chartInstance);
+        });
+      },
+
       getMonthlyExpensesByCategory() {
         const last12Months = [];
         const now = new Date();
@@ -1403,8 +1543,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         const months = [];
-        for (let i = numMonths - 1; i >= 0; i--) {
-          const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        // Calculate months based on the actual time range filter dates
+        const startDate = new Date(timeRangeFilter.startDate);
+        for (let i = 0; i < numMonths; i++) {
+          const date = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
           months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
@@ -1675,8 +1817,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
 
-        // Get all categories
-        const categories = [...new Set(this.transactions.map(t => t.category))].sort();
+        // Get all categories from current category list
+        const categories = this.categories.map(cat => cat.name).sort();
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
@@ -1704,45 +1846,101 @@ document.addEventListener('DOMContentLoaded', async () => {
           const lastMonth = monthlyTotals[`${currentYear}-${currentMonth - 1}`] ||
                            monthlyTotals[`${currentYear - 1}-${11}`] || 0;
 
-          // Calculate averages
-          const last12Months = [];
-          for (let i = 0; i < 12; i++) {
-            const date = new Date(currentYear, currentMonth - i, 1);
-            const key = `${date.getFullYear()}-${date.getMonth()}`;
-            last12Months.push(monthlyTotals[key] || 0);
+          // Calculate averages for 2025
+          const year2025Months = [];
+          for (let month = 0; month < 12; month++) {
+            const key = `2025-${month}`;
+            year2025Months.push(monthlyTotals[key] || 0);
           }
 
-          const last6Months = last12Months.slice(0, 6);
+          // Calculate average for 2025 - average of months with data
+          const monthsWithData = year2025Months.filter(amount => amount > 0);
+          const avg2025 = monthsWithData.length > 0
+            ? monthsWithData.reduce((sum, val) => sum + val, 0) / monthsWithData.length
+            : 0;
+
+          // For backward compatibility, keep the old calculations but base them on 2025
+          const last6Months = year2025Months.slice(Math.max(0, currentMonth - 5), currentMonth + 1);
+          const last6MonthsWithData = last6Months.filter(amount => amount > 0);
+          const avgLast6Months = last6MonthsWithData.length > 0
+            ? last6MonthsWithData.reduce((sum, val) => sum + val, 0) / last6MonthsWithData.length
+            : 0;
+
+          // Previous year (2024) data
           const previousYear = [];
-          for (let i = 12; i < 24; i++) {
-            const date = new Date(currentYear, currentMonth - i, 1);
-            const key = `${date.getFullYear()}-${date.getMonth()}`;
+          for (let month = 0; month < 12; month++) {
+            const key = `2024-${month}`;
             previousYear.push(monthlyTotals[key] || 0);
           }
-
-          const avgLast12Months = last12Months.reduce((sum, val) => sum + val, 0) / 12;
-          const avgLast6Months = last6Months.reduce((sum, val) => sum + val, 0) / 6;
           const avgPreviousYear = previousYear.reduce((sum, val) => sum + val, 0) / 12;
-
-          // Find highest and lowest months
-          const allMonths = Object.values(monthlyTotals);
-          const highestMonth = allMonths.length > 0 ? Math.max(...allMonths) : 0;
-          const lowestMonth = allMonths.length > 0 ? Math.min(...allMonths) : 0;
 
           statistics[category] = {
             thisMonth,
             lastMonth,
-            avgLast12Months,
+            avgLast12Months: avg2025, // Average of 2025 months with data
             avgLast6Months,
             avgPreviousYear,
-            highestMonth,
-            lowestMonth,
             // Helper for color logic: true if this month is higher than last month (worse)
             isThisMonthHigher: thisMonth > lastMonth
           };
         });
 
         return statistics;
+      },
+
+      getCategoryCharts() {
+        const now = new Date();
+        const charts = [];
+
+        this.categories.forEach(category => {
+          const categoryTransactions = this.transactions.filter(t => t.category === category.name);
+
+          // Calculate separate data for income and expenses
+          const incomeData = [];
+          const expenseData = [];
+          const months = [];
+
+          for (let i = 11; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+
+            const monthTransactions = categoryTransactions.filter(t => {
+              const transactionDate = new Date(t.date);
+              return transactionDate.getFullYear() === date.getFullYear() &&
+                     transactionDate.getMonth() === date.getMonth();
+            });
+
+            // Calculate income and expenses separately
+            const income = monthTransactions
+              .filter(t => t.amount >= 0)
+              .reduce((sum, t) => sum + t.amount, 0);
+
+            const expenses = monthTransactions
+              .filter(t => t.amount < 0)
+              .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+            incomeData.push(income);
+            expenseData.push(expenses);
+            months.push(date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' }));
+          }
+
+          // Calculate totals
+          const totalIncome = incomeData.reduce((sum, amount) => sum + amount, 0);
+          const totalExpenses = expenseData.reduce((sum, amount) => sum + amount, 0);
+          const netTotal = totalIncome - totalExpenses;
+
+          charts.push({
+            category: category.name,
+            color: category.color,
+            incomeData: incomeData,
+            expenseData: expenseData,
+            labels: months,
+            totalIncome: totalIncome,
+            totalExpenses: totalExpenses,
+            netTotal: netTotal
+          });
+        });
+
+        return charts;
       },
 
       getDailyAccountBalanceData() {
@@ -2072,7 +2270,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           const categoryData = {
             name: this.categoryForm.name.trim(),
-            color: this.categoryForm.color
+            color: this.categoryForm.color,
+            budget: this.editingCategory ? this.editingCategory.budget : 0
           };
 
           // Check for duplicate names
@@ -2088,6 +2287,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           if (this.editingCategory) {
             // Update existing category
+            const oldCategoryName = this.editingCategory.name;
+            const newCategoryName = categoryData.name;
+
+            // If category name changed, update all transactions with the old name
+            if (oldCategoryName !== newCategoryName) {
+              const transactionsToUpdate = this.transactions.filter(t => t.category === oldCategoryName);
+              for (const transaction of transactionsToUpdate) {
+                await manager.saveSmartDocument('transactions', {
+                  ...transaction,
+                  category: newCategoryName
+                });
+              }
+            }
+
             await manager.saveSmartDocument('categories', {
               ...this.editingCategory,
               ...categoryData
@@ -2131,7 +2344,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!notDefinedCategory) {
               await manager.saveSmartDocument('categories', {
                 name: 'Not defined',
-                color: '#6b7280'
+                color: '#6b7280',
+                budget: 0
               });
               this.categories = await manager.getSmartCollection('categories') || [];
               notDefinedCategory = this.categories.find(c => c.name === 'Not defined');
@@ -2159,6 +2373,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       getCategoryColor(categoryName) {
         const category = this.categories.find(c => c.name === categoryName);
         return category ? category.color : '#6b7280';
+      },
+
+      getCategoryBudget(categoryName) {
+        return this.categoryBudgets[categoryName] || 0;
+      },
+
+      updateCategoryBudget(categoryName, budgetValue) {
+        const budget = parseFloat(budgetValue) || 0;
+
+        // Update reactive data
+        this.$set(this.categoryBudgets, categoryName, budget);
+
+        // Save to local storage
+        const savedBudgets = { ...this.categoryBudgets };
+        localStorage.setItem('financepro_category_budgets', JSON.stringify(savedBudgets));
+      },
+
+      loadCategoryBudgets() {
+        const savedBudgets = JSON.parse(localStorage.getItem('financepro_category_budgets') || '{}');
+        this.categoryBudgets = { ...savedBudgets };
+      },
+
+      getAmountColor(amount, budget) {
+        if (!budget || budget === 0) return 'text-white';
+        return amount > budget ? 'text-red-400' : 'text-green-400';
       },
 
       // ============================================================================
@@ -2634,7 +2873,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           try {
             await manager.saveSmartDocument('categories', {
               name: 'Not defined',
-              color: '#6b7280'
+              color: '#6b7280',
+              budget: 0
             });
             // Refresh categories list
             this.categories = await manager.getSmartCollection('categories') || [];
@@ -2775,7 +3015,8 @@ document.addEventListener('DOMContentLoaded', async () => {
               // Create new category
               const newCategory = {
                 name: categoryStr.trim(),
-                color: '#6b7280' // Default gray color
+                color: '#6b7280', // Default gray color
+                budget: 0
               };
               try {
                 await manager.saveSmartDocument('categories', newCategory);
@@ -2861,6 +3102,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!this.isAuthenticated) {
         this.loginForm.username = 'demo_user';
         this.login();
+      } else {
+        // If already authenticated, load category budgets
+        this.loadCategoryBudgets();
       }
 
       // Click outside handler for account filter dropdown
