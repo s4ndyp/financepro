@@ -1,13 +1,14 @@
 version: '3.8'
 
 services:
-  financepro:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8080:80"
-    container_name: financepro-app
+
+  app:
+
+    image: ghcr.io/s4ndyp/bankey:latest
+    container_name: financepro-container
+  
     restart: unless-stopped
-    environment:
-      - NGINX_PORT=80
+       
+    ports:
+
+      - "7104:80"
