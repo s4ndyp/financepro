@@ -45,13 +45,12 @@ jobs:
           echo "TAGS=$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo "LABELS=org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" >> $GITHUB_OUTPUT
           
-      # Voert de multi-stage Docker build uit en pusht de image naar GHCR.
+      # PocketBase image met FinancePro static files in pb_public.
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: . # Zoekt naar de Dockerfile in de root van de repository
+          context: .
+          file: pocketbase/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.TAGS }}
           labels: ${{ steps.meta.outputs.LABELS }}
-          # De Angular applicatie wordt gebouwd in de Dockerfile (multi-stage build)
-          # Het Nginx configuratiebestand (nginx.conf) wordt ook meegenomen.
