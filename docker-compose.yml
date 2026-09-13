@@ -6,7 +6,7 @@ services:
       context: .
       args:
         POCKETBASE_VERSION: "0.40.4"
-    image: ghcr.io/s4ndyp/bankey:latest
+    image: ghcr.io/s4ndyp/financepro:latest
     container_name: financepro-container
     restart: unless-stopped
     ports:
