@@ -46,9 +46,16 @@ class PocketBaseClient {
     }
 
     async getCollection(name) {
-        const url = `${this._recordsUrl(name)}?perPage=500&sort=-created`;
+        const url = `${this._recordsUrl(name)}?perPage=500&sort=-id`;
         const response = await fetch(url, { headers: this._headers() });
-        if (!response.ok) throw new Error(`Server error: ${response.status}`);
+        if (!response.ok) {
+            let detail = '';
+            try {
+                const err = await response.json();
+                if (err.message) detail = `: ${err.message}`;
+            } catch (_) { /* ignore */ }
+            throw new Error(`Server error: ${response.status}${detail}`);
+        }
         const body = await response.json();
         const items = Array.isArray(body) ? body : (body.items || []);
         return items.map((item) => this._mapRecord(item));
