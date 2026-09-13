@@ -2,14 +2,17 @@ version: '3.8'
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        POCKETBASE_VERSION: "0.40.4"
     image: ghcr.io/s4ndyp/bankey:latest
     container_name: financepro-container
     restart: unless-stopped
     ports:
       - "7104:8090"
     volumes:
-      - pocketbase_data:/pb/pb_data
+      - pocketbase_data:/app/pb_data
 
 volumes:
   pocketbase_data:
