@@ -1,6 +1,5 @@
 /**
  * FinancePro - Finance Management Application
- * Core Logic with Offline-First Architecture
  */
 
 // ============================================================================
@@ -47,11 +46,10 @@ function showToast(message, type = 'success') {
 // CONFIGURATION & INITIALIZATION
 // ============================================================================
 
-const APP_NAME = 'financepro';
 const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
 const API_URL = ''; // Zelfde origin; PocketBase serveert static + /api
 
-let manager = null;
+let db = null;
 let app = null;
 
 // Make app globally accessible for utility functions
@@ -60,68 +58,12 @@ window.app = null;
 // Theme configuration is now in Vue data
 
 // ============================================================================
-// OFFLINE MANAGER INTEGRATION
+// POCKETBASE CLIENT
 // ============================================================================
 
-async function initializeOfflineManager() {
-  try {
-    manager = new OfflineManager(API_URL, CLIENT_ID, APP_NAME);
-
-    // Set up event listeners
-    manager.onSyncChange = (pendingCount) => {
-      console.log(`[FinancePro] Sync status: ${pendingCount} pending operations`);
-      if (app) {
-        app.syncStatus = pendingCount > 0 ? 'syncing' : 'synced';
-      }
-    };
-
-    manager.onDataChanged = () => {
-      console.log('[FinancePro] Data changed, refreshing UI');
-      if (app) {
-        app.refreshData();
-      }
-    };
-
-    // Set up online/offline detection
-    window.addEventListener('online', () => {
-      console.log('[FinancePro] Back online, syncing...');
-      if (app) app.dbConnected = true;
-      manager.syncOutbox();
-      manager.refreshCache('transactions');
-      manager.refreshCache('categories');
-      manager.refreshCache('rules');
-    });
-
-    window.addEventListener('offline', () => {
-      console.log('[FinancePro] Gone offline');
-      if (app) app.dbConnected = false;
-    });
-
-    // Periodic refresh (every 60 seconds)
-    setInterval(() => {
-      if (navigator.onLine && !manager.isOfflineSimulated) {
-        manager.refreshCache('transactions');
-        manager.refreshCache('categories');
-        manager.refreshCache('rules');
-      }
-    }, 60000);
-
-    // Focus-based refresh
-    window.addEventListener('focus', () => {
-      if (navigator.onLine && !manager.isOfflineSimulated) {
-        manager.refreshCache('transactions');
-        manager.refreshCache('categories');
-        manager.refreshCache('rules');
-      }
-    });
-
-    console.log('[FinancePro] Offline manager initialized successfully');
-    return true;
-  } catch (error) {
-    console.error('[FinancePro] Failed to initialize offline manager:', error);
-    showToast('Fout bij initialisatie van offline manager', 'error');
-    return false;
-  }
+function initializeDatabase() {
+  db = new PocketBaseClient(API_URL, CLIENT_ID);
+  return true;
 }
 
 // ============================================================================
@@ -129,9 +71,7 @@ async function initializeOfflineManager() {
 // ============================================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize offline manager first
-  const initialized = await initializeOfflineManager();
-  if (!initialized) {
+  if (!initializeDatabase()) {
     return;
   }
 
@@ -148,11 +88,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Navigation
         currentPage: 'dashboard',
         showMobileMenu: false,
-
-        // Connection status
-        dbConnected: navigator.onLine,
-        syncStatus: 'synced',
-        isOfflineMode: false,
 
         // Settings
         showSettingsModal: false,
@@ -506,18 +441,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       async refreshData() {
         try {
-          if (navigator.onLine && manager && !manager.isOfflineSimulated) {
-            await Promise.all([
-              manager.refreshCache('transactions'),
-              manager.refreshCache('categories'),
-              manager.refreshCache('rules')
-            ]);
-          }
-
           const [transactions, categories, rules] = await Promise.all([
-            manager.getSmartCollection('transactions'),
-            manager.getSmartCollection('categories'),
-            manager.getSmartCollection('rules')
+            db.getCollection('transactions'),
+            db.getCollection('categories'),
+            db.getCollection('rules')
           ]);
 
           this.transactions = transactions || [];
@@ -687,15 +614,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.settings.themeColor = color.val;
         document.documentElement.setAttribute('data-theme', color.val);
         localStorage.setItem('financepro_theme', color.val);
-      },
-
-      toggleOfflineMode() {
-        this.isOfflineMode = !this.isOfflineMode;
-        manager.isOfflineSimulated = this.isOfflineMode;
-        if (!this.isOfflineMode && navigator.onLine) {
-          manager.syncOutbox();
-        }
-        showToast(this.isOfflineMode ? 'Offline modus ingeschakeld' : 'Online modus ingeschakeld', 'success');
       },
 
       // ============================================================================
@@ -2203,14 +2121,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           if (this.editingTransaction) {
             // Update existing transaction
-            await manager.saveSmartDocument('transactions', {
+            await db.saveDocument('transactions', {
               ...this.editingTransaction,
               ...processedData
             });
             showToast('Transactie bijgewerkt', 'success');
           } else {
             // Create new transaction
-            await manager.saveSmartDocument('transactions', processedData);
+            await db.saveDocument('transactions', processedData);
             showToast('Transactie toegevoegd', 'success');
           }
 
@@ -2228,7 +2146,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         try {
-          await manager.deleteSmartDocument('transactions', transactionId);
+          await db.deleteDocument('transactions', transactionId);
           showToast('Transactie verwijderd', 'success');
           await this.refreshData();
         } catch (error) {
@@ -2302,21 +2220,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (oldCategoryName !== newCategoryName) {
               const transactionsToUpdate = this.transactions.filter(t => t.category === oldCategoryName);
               for (const transaction of transactionsToUpdate) {
-                await manager.saveSmartDocument('transactions', {
+                await db.saveDocument('transactions', {
                   ...transaction,
                   category: newCategoryName
                 });
               }
             }
 
-            await manager.saveSmartDocument('categories', {
+            await db.saveDocument('categories', {
               ...this.editingCategory,
               ...categoryData
             });
             showToast('Categorie bijgewerkt', 'success');
           } else {
             // Create new category
-            await manager.saveSmartDocument('categories', categoryData);
+            await db.saveDocument('categories', categoryData);
             showToast('Categorie toegevoegd', 'success');
           }
 
@@ -2350,18 +2268,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Ensure "Not defined" category exists
             let notDefinedCategory = this.categories.find(c => c.name === 'Not defined');
             if (!notDefinedCategory) {
-              await manager.saveSmartDocument('categories', {
+              await db.saveDocument('categories', {
                 name: 'Not defined',
                 color: '#6b7280',
                 budget: 0
               });
-              this.categories = await manager.getSmartCollection('categories') || [];
+              this.categories = await db.getCollection('categories') || [];
               notDefinedCategory = this.categories.find(c => c.name === 'Not defined');
             }
 
             // Update all transactions to use "Not defined"
             for (const transaction of transactionsUsingCategory) {
-              await manager.saveSmartDocument('transactions', {
+              await db.saveDocument('transactions', {
                 ...transaction,
                 category: 'Not defined'
               });
@@ -2369,7 +2287,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
 
           // Delete the category
-          await manager.deleteSmartDocument('categories', categoryId);
+          await db.deleteDocument('categories', categoryId);
           showToast(`Categorie verwijderd${transactionsUsingCategory.length > 0 ? `, ${transactionsUsingCategory.length} transacties verplaatst naar "Not defined"` : ''}`, 'success');
           await this.refreshData();
         } catch (error) {
@@ -2467,7 +2385,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const transaction = this.transactions.find(t => t.id === transactionId);
             console.log('Found transaction:', transaction);
             if (transaction) {
-              await manager.saveSmartDocument('transactions', {
+              await db.saveDocument('transactions', {
                 ...transaction,
                 ...updates
               });
@@ -2501,7 +2419,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           let deletedCount = 0;
 
           for (const transactionId of this.selectedTransactions) {
-            await manager.deleteSmartDocument('transactions', transactionId);
+            await db.deleteDocument('transactions', transactionId);
             deletedCount++;
           }
 
@@ -2590,14 +2508,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           if (this.editingRule) {
             // Update existing rule
-            await manager.saveSmartDocument('rules', {
+            await db.saveDocument('rules', {
               ...this.editingRule,
               ...ruleData
             });
             showToast('Regel bijgewerkt', 'success');
           } else {
             // Create new rule
-            await manager.saveSmartDocument('rules', ruleData);
+            await db.saveDocument('rules', ruleData);
             showToast('Regel toegevoegd', 'success');
           }
 
@@ -2615,7 +2533,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         try {
-          await manager.deleteSmartDocument('rules', ruleId);
+          await db.deleteDocument('rules', ruleId);
           showToast('Regel verwijderd', 'success');
           await this.refreshData();
         } catch (error) {
@@ -2626,7 +2544,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       async toggleRuleActive(rule) {
         try {
-          await manager.saveSmartDocument('rules', {
+          await db.saveDocument('rules', {
             ...rule,
             active: !rule.active
           });
@@ -2649,7 +2567,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             processedTransaction = this.applyRuleAction(processedTransaction, rule.action);
 
             // Update rule applied count
-            await manager.saveSmartDocument('rules', {
+            await db.saveDocument('rules', {
               ...rule,
               appliedCount: (rule.appliedCount || 0) + 1
             });
@@ -2673,7 +2591,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Save updated transactions
         for (const transaction of updatedTransactions) {
-          await manager.saveSmartDocument('transactions', transaction);
+          await db.saveDocument('transactions', transaction);
         }
 
         if (updatedTransactions.length > 0) {
@@ -2879,13 +2797,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         const notDefinedCategory = this.categories.find(c => c.name === 'Not defined');
         if (!notDefinedCategory) {
           try {
-            await manager.saveSmartDocument('categories', {
+            await db.saveDocument('categories', {
               name: 'Not defined',
               color: '#6b7280',
               budget: 0
             });
             // Refresh categories list
-            this.categories = await manager.getSmartCollection('categories') || [];
+            this.categories = await db.getCollection('categories') || [];
           } catch (error) {
             console.warn('[FinancePro] Could not create "Not defined" category:', error);
           }
@@ -2915,7 +2833,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             try {
               // Apply rules before saving
               const processedTransaction = await this.applyRulesToTransaction(transaction);
-              await manager.saveSmartDocument('transactions', processedTransaction);
+              await db.saveDocument('transactions', processedTransaction);
               importedCount++;
             } catch (error) {
               console.warn('Failed to import transaction:', transaction, error);
@@ -3027,7 +2945,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 budget: 0
               };
               try {
-                await manager.saveSmartDocument('categories', newCategory);
+                await db.saveDocument('categories', newCategory);
                 this.categories.push(newCategory);
                 finalCategory = newCategory.name;
               } catch (error) {

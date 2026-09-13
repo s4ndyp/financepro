@@ -19,7 +19,7 @@ RUN curl -fsSL \
     && rm /tmp/pocketbase.zip
 
 COPY pocketbase/pb_migrations/ ./pb_migrations/
-COPY index.html logic.js styles.css offline_manager.js ./pb_public/
+COPY index.html logic.js styles.css pocketbase_client.js ./pb_public/
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
