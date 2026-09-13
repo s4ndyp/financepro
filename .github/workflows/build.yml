@@ -55,8 +55,9 @@ jobs:
     - name: 🏗️ Bouw en Push Docker image naar GHCR
       uses: docker/build-push-action@v5
       with:
-        context: . # Zoek naar Dockerfile in de root van de repository
-        push: true # Zorg ervoor dat de image na het bouwen wordt geüpload.
+        context: .
+        file: Dockerfile
+        push: true
         # ----------------------------------------------------
         # Gebruik de dynamisch bepaalde tag uit de vorige stap
         # ----------------------------------------------------
