@@ -1,14 +1,32 @@
 version: '3.8'
 
 services:
+  pocketbase:
+    build:
+      context: ./pocketbase
+    container_name: financepro-pocketbase
+    restart: unless-stopped
+    volumes:
+      - pocketbase_data:/pb/pb_data
+    networks:
+      - financepro
 
   app:
-
+    build:
+      context: .
     image: ghcr.io/s4ndyp/bankey:latest
     container_name: financepro-container
-  
     restart: unless-stopped
-       
     ports:
-
       - "7104:80"
+    depends_on:
+      - pocketbase
+    networks:
+      - financepro
+
+volumes:
+  pocketbase_data:
+
+networks:
+  financepro:
+    driver: bridge

@@ -6,52 +6,81 @@
  */
 
 class DataGateway {
-    constructor(baseUrl, clientId, appName) {
-        this.baseUrl = baseUrl;
+    constructor(baseUrl, clientId) {
+        this.baseUrl = baseUrl.replace(/\/$/, '');
         this.clientId = clientId;
-        this.appName = appName;
     }
 
-    _getUrl(collectionName, id = null) {
-        let url = `${this.baseUrl}/api/${this.appName}_${collectionName}`;
-        if (id) url += `/${id}`;
+    _headers(json = false) {
+        const headers = { 'x-client-id': this.clientId };
+        if (json) headers['Content-Type'] = 'application/json';
+        return headers;
+    }
+
+    _recordsUrl(collectionName, recordId = null) {
+        let url = `${this.baseUrl}/api/collections/${collectionName}/records`;
+        if (recordId) url += `/${recordId}`;
         return url;
     }
 
+    _mapRecord(record) {
+        if (!record || typeof record !== 'object') return record;
+        const mapped = { ...record, _id: record.id };
+        delete mapped.collectionId;
+        delete mapped.collectionName;
+        delete mapped.expand;
+        delete mapped.client_id;
+        return mapped;
+    }
+
+    _preparePayload(data) {
+        const payload = { ...data };
+        delete payload._id;
+        delete payload.id;
+        delete payload.collection;
+        delete payload.created;
+        delete payload.updated;
+        payload.client_id = this.clientId;
+        return payload;
+    }
+
     async getCollection(name) {
-        const response = await fetch(this._getUrl(name), {
-            headers: { 'x-client-id': this.clientId }
-        });
+        const url = `${this._recordsUrl(name)}?perPage=500&sort=-created`;
+        const response = await fetch(url, { headers: this._headers() });
         if (!response.ok) throw new Error(`Server error: ${response.status}`);
-        return await response.json();
+        const body = await response.json();
+        const items = Array.isArray(body) ? body : (body.items || []);
+        return items.map((item) => this._mapRecord(item));
     }
 
     async saveDocument(name, data) {
-        const method = data._id ? 'PUT' : 'POST';
-        const url = this._getUrl(name, data._id);
+        const payload = this._preparePayload(data);
+        const isUpdate = Boolean(data._id);
+        const url = isUpdate ? this._recordsUrl(name, data._id) : this._recordsUrl(name);
         const response = await fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json', 'x-client-id': this.clientId },
-            body: JSON.stringify(data)
+            method: isUpdate ? 'PATCH' : 'POST',
+            headers: this._headers(true),
+            body: JSON.stringify(payload)
         });
         if (!response.ok) throw new Error(`Save error: ${response.status}`);
-        return await response.json();
+        const record = await response.json();
+        return this._mapRecord(record);
     }
 
     async deleteDocument(name, id) {
-        const response = await fetch(this._getUrl(name, id), {
+        const response = await fetch(this._recordsUrl(name, id), {
             method: 'DELETE',
-            headers: { 'x-client-id': this.clientId }
+            headers: this._headers()
         });
         if (!response.ok) throw new Error(`Delete error: ${response.status}`);
-        return await response.json();
+        return true;
     }
 }
 
 class OfflineManager {
     constructor(baseUrl, clientId, appName) {
         this.appName = appName;
-        this.gateway = new DataGateway(baseUrl, clientId, appName);
+        this.gateway = new DataGateway(baseUrl, clientId);
         this.db = new Dexie(`OfflineEngine_${appName}_${clientId}`);
         
         this.db.version(1).stores({
