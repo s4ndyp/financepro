@@ -3,6 +3,7 @@ set -e
 
 PB_DIR="${PB_DIR:-./pb_data}"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-./pb_migrations}"
+PUBLIC_DIR="${PUBLIC_DIR:-./pb_public}"
 
 mkdir -p "$PB_DIR"
 
@@ -18,5 +19,7 @@ exec pocketbase serve \
     --http=0.0.0.0:8090 \
     --dir="$PB_DIR" \
     --migrationsDir="$MIGRATIONS_DIR" \
+    --publicDir="$PUBLIC_DIR" \
+    --indexFallback \
     --automigrate=false \
     --dev=false

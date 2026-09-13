@@ -49,7 +49,7 @@ function showToast(message, type = 'success') {
 
 const APP_NAME = 'financepro';
 const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
-const API_URL = ''; // Zelfde origin; nginx proxy't /api naar PocketBase
+const API_URL = ''; // Zelfde origin; PocketBase serveert static + /api
 
 let manager = null;
 let app = null;

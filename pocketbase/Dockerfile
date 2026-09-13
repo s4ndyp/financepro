@@ -11,8 +11,10 @@ RUN apk add --no-cache ca-certificates unzip wget \
 
 WORKDIR /pb
 
-COPY pb_migrations ./pb_migrations
-COPY docker-entrypoint.sh ./docker-entrypoint.sh
+COPY pocketbase/pb_migrations ./pb_migrations
+COPY pocketbase/docker-entrypoint.sh ./docker-entrypoint.sh
+COPY index.html logic.js styles.css offline_manager.js ./pb_public/
+
 RUN chmod +x ./docker-entrypoint.sh
 
 VOLUME ["/pb/pb_data"]
