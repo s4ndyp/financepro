@@ -49,7 +49,7 @@ function showToast(message, type = 'success') {
 
 const APP_NAME = 'financepro';
 const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
-const API_URL = 'http://10.10.2.20:5000'; // Aanpassen naar juiste server URL
+const API_URL = ''; // Zelfde origin; nginx proxy't /api naar PocketBase
 
 let manager = null;
 let app = null;
@@ -506,6 +506,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       async refreshData() {
         try {
+          if (navigator.onLine && manager && !manager.isOfflineSimulated) {
+            await Promise.all([
+              manager.refreshCache('transactions'),
+              manager.refreshCache('categories'),
+              manager.refreshCache('rules')
+            ]);
+          }
+
           const [transactions, categories, rules] = await Promise.all([
             manager.getSmartCollection('transactions'),
             manager.getSmartCollection('categories'),
