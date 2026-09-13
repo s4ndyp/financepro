@@ -1,13 +1,15 @@
 version: '3.8'
 
-# Dockhand / productie: alleen de image uit GHCR pullen (geen build-context nodig).
-# Registry in Dockhand: ghcr.io + GitHub-gebruikersnaam + PAT met read:packages,
-# of maak het package public op github.com/users/s4ndyp/packages
+# Lokaal bouwen: docker compose -f docker-compose.build.yml build
+# Daarna: docker compose -f docker-compose.build.yml up -d
 
 services:
   app:
+    build:
+      context: .
+      args:
+        POCKETBASE_VERSION: "0.40.4"
     image: ghcr.io/s4ndyp/financepro:latest
-    pull_policy: always
     container_name: financepro-container
     restart: unless-stopped
     ports:
