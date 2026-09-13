@@ -2,9 +2,7 @@ version: '3.8'
 
 services:
   app:
-    build:
-      context: .
-      dockerfile: pocketbase/Dockerfile
+    build: .
     image: ghcr.io/s4ndyp/bankey:latest
     container_name: financepro-container
     restart: unless-stopped
