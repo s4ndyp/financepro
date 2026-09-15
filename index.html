@@ -441,6 +441,15 @@
                             </tbody>
                         </table>
                     </div>
+                    <div v-if="transactionTablePageCount > 1" class="flex items-center justify-between px-4 py-3 border-t border-gray-700 text-sm text-gray-400">
+                        <span>Pagina {{ transactionTablePage }} / {{ transactionTablePageCount }} ({{ filteredTransactions.length }} resultaten)</span>
+                        <div class="flex gap-2">
+                            <button @click="goToTransactionTablePage(transactionTablePage - 1)" :disabled="transactionTablePage <= 1"
+                                    class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white">Vorige</button>
+                            <button @click="goToTransactionTablePage(transactionTablePage + 1)" :disabled="transactionTablePage >= transactionTablePageCount"
+                                    class="px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white">Volgende</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
