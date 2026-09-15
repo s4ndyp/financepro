@@ -58,22 +58,60 @@ class PocketBaseClient {
         return response.json();
     }
 
-    async getCollection(name) {
+    /**
+     * @param {object} options
+     * @param {number|null} options.maxRecords stop after N records (default: fetch all pages)
+     * @param {string|null} options.filter PocketBase filter expression
+     * @param {string} options.sort e.g. -date or -id
+     */
+    async listRecords(collectionName, options = {}) {
+        const {
+            maxRecords = null,
+            filter = null,
+            sort = '-id'
+        } = options;
+
         const perPage = 500;
         let page = 1;
         let totalPages = 1;
+        let totalItems = 0;
         const allItems = [];
 
         do {
-            const url = `${this._recordsUrl(name)}?perPage=${perPage}&page=${page}&sort=-id`;
+            const params = new URLSearchParams({
+                perPage: String(perPage),
+                page: String(page),
+                sort
+            });
+            if (filter) params.set('filter', filter);
+
+            const url = `${this._recordsUrl(collectionName)}?${params.toString()}`;
             const body = await this._fetchJson(url);
             const items = Array.isArray(body) ? body : (body.items || []);
-            allItems.push(...items.map((item) => this._mapRecord(item)));
+            totalItems = body.totalItems ?? totalItems;
             totalPages = body.totalPages || 1;
+
+            for (const item of items) {
+                allItems.push(this._mapRecord(item));
+                if (maxRecords !== null && allItems.length >= maxRecords) {
+                    return {
+                        items: allItems,
+                        totalItems: totalItems || allItems.length
+                    };
+                }
+            }
             page += 1;
         } while (page <= totalPages);
 
-        return allItems;
+        return {
+            items: allItems,
+            totalItems: totalItems || allItems.length
+        };
+    }
+
+    async getCollection(name) {
+        const { items } = await this.listRecords(name);
+        return items;
     }
 
     async saveDocument(name, data) {
