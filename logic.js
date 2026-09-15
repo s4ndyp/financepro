@@ -42,6 +42,106 @@ function showToast(message, type = 'success') {
   }, 4000);
 }
 
+/**
+ * Parse one CSV line (supports quoted fields with commas and apostrophes).
+ * SNS/ING exports often wrap Omschrijving in single quotes, e.g. McDonald's.
+ */
+function parseCsvRow(line, delimiter = ',') {
+  const fields = [];
+  let field = '';
+  let i = 0;
+  let inSingleQuotes = false;
+
+  while (i < line.length) {
+    const char = line[i];
+
+    if (inSingleQuotes) {
+      if (char === "'") {
+        const next = line[i + 1];
+        if (next === delimiter || next === undefined) {
+          inSingleQuotes = false;
+          i += 1;
+          continue;
+        }
+        field += char;
+        i += 1;
+        continue;
+      }
+      field += char;
+      i += 1;
+      continue;
+    }
+
+    if (char === "'") {
+      inSingleQuotes = true;
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      i += 1;
+      while (i < line.length) {
+        if (line[i] === '"' && line[i + 1] === '"') {
+          field += '"';
+          i += 2;
+          continue;
+        }
+        if (line[i] === '"') {
+          i += 1;
+          break;
+        }
+        field += line[i];
+        i += 1;
+      }
+      continue;
+    }
+
+    if (char === delimiter) {
+      fields.push(field.trim());
+      field = '';
+      i += 1;
+      continue;
+    }
+
+    field += char;
+    i += 1;
+  }
+
+  fields.push(field.trim());
+  return fields.map((value) => value.replace(/^['"]|['"]$/g, '').trim());
+}
+
+function parseCsvAmount(rawValue) {
+  if (rawValue === undefined || rawValue === null) return NaN;
+  let value = String(rawValue).trim();
+  if (!value) return NaN;
+  value = value.replace(/\s/g, '').replace(/[€$£]/g, '');
+  if (value.includes(',') && !value.includes('.')) {
+    value = value.replace(',', '.');
+  } else if (value.includes(',') && value.includes('.')) {
+    value = value.replace(/\./g, '').replace(',', '.');
+  }
+  return parseFloat(value);
+}
+
+function parseCsvDate(dateStr) {
+  if (!dateStr) return null;
+  const trimmed = dateStr.trim();
+  if (trimmed.includes('-') || trimmed.includes('/')) {
+    const separator = trimmed.includes('-') ? '-' : '/';
+    const parts = trimmed.split(separator);
+    if (parts.length === 3) {
+      const day = parts[0].padStart(2, '0');
+      const month = parts[1].padStart(2, '0');
+      const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+      return `${year}-${month}-${day}`;
+    }
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().split('T')[0];
+}
+
 // ============================================================================
 // CONFIGURATION & INITIALIZATION
 // ============================================================================
@@ -2680,15 +2780,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           // Extract column names from header (first line)
           if (lines.length > 0) {
-            const headerColumns = lines[0].split(delimiter);
-            this.csvColumns = headerColumns.map(col => col.replace(/"/g, '').trim());
+            this.csvColumns = parseCsvRow(lines[0], delimiter);
           }
 
-          // Show preview of first 5 data rows (skip header)
-          this.csvPreview = lines.slice(1, 6).map(line => {
-            const columns = line.split(delimiter);
-            return columns.map(col => col.replace(/"/g, '').trim()).join(' | ');
-          });
+          this.csvPreview = lines.slice(1, 6).map(line => parseCsvRow(line, delimiter).join(' | '));
 
           // Auto-detect columns if possible
           this.autoDetectColumns();
@@ -2700,33 +2795,37 @@ document.addEventListener('DOMContentLoaded', async () => {
       autoDetectColumns() {
         if (!this.csvColumns || this.csvColumns.length === 0) return;
 
-        const mappings = {
-          date: ['datum', 'date', 'dt', 'time'],
-          name: ['naam', 'name', 'receiver', 'sender', 'persoon'],
-          description: ['omschrijving', 'description', 'desc', 'details', 'memo'],
-          amount: ['bedrag', 'amount', 'amt', 'waarde', 'value', 'sum'],
-          balance: ['saldo', 'balance', 'bal', 'saldo na', 'balance after'],
-          account: ['van/naar', 'van', 'naar', 'account', 'rekening', 'from/to', 'from', 'to'],
-          category: ['categorie', 'category', 'cat', 'type', 'soort']
-        };
-
-        // Reset mappings
         Object.keys(this.csvMapping).forEach(key => {
           if (key !== 'delimiter') this.csvMapping[key] = '';
         });
 
-        // Try to match columns
-        this.csvColumns.forEach((columnName, index) => {
-          const lowerColumn = columnName.toLowerCase();
-          for (const [field, keywords] of Object.entries(mappings)) {
-            if (keywords.some(keyword => lowerColumn.includes(keyword))) {
-              if (!this.csvMapping[field]) { // Only set if not already set
-                this.csvMapping[field] = index.toString();
-              }
-              break;
-            }
+        const normalized = this.csvColumns.map((name, index) => ({
+          index,
+          lower: name.toLowerCase().trim()
+        }));
+
+        const pick = (rules) => {
+          for (const rule of rules) {
+            const match = normalized.find(col => rule.test(col.lower));
+            if (match) return match.index.toString();
           }
-        });
+          return '';
+        };
+
+        this.csvMapping.date = pick([/^datum$/, /\bdatum\b/]);
+        this.csvMapping.name = pick([/^naam$/, /^name$/]);
+        this.csvMapping.description = pick([/^omschrijving$/, /\bomschrijving\b/, /\bdescription\b/, /\bmemo\b/]);
+        this.csvMapping.amount = pick([
+          /bedrag bij\s*\/?\s*af/,
+          /^bedrag$/,
+          /\bbedrag\b/
+        ]);
+        this.csvMapping.balance = pick([/saldo voor boeking/, /^saldo$/, /\bbalance\b/]);
+        this.csvMapping.account = pick([/^van\s*\/?\s*naar$/, /\bvan\s*\/?\s*naar\b/, /^tegenrekening$/]);
+        if (!this.csvMapping.account) {
+          this.csvMapping.account = pick([/^je rekening$/, /\brekening\b/]);
+        }
+        this.csvMapping.category = pick([/^categorie$/, /^category$/]);
 
         console.log('Auto-detected mappings:', this.csvMapping);
       },
@@ -2758,15 +2857,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           // Extract column names from header (first line)
           if (lines.length > 0) {
-            const headerColumns = lines[0].split(delimiter);
-            this.csvColumns = headerColumns.map(col => col.replace(/"/g, '').trim());
+            this.csvColumns = parseCsvRow(lines[0], delimiter);
           }
 
-          // Show preview of first 5 data rows (skip header)
-          this.csvPreview = lines.slice(1, 6).map(line => {
-            const columns = line.split(delimiter);
-            return columns.map(col => col.replace(/"/g, '').trim()).join(' | ');
-          });
+          this.csvPreview = lines.slice(1, 6).map(line => parseCsvRow(line, delimiter).join(' | '));
         } catch (error) {
           console.error('Error parsing CSV file:', error);
           showToast('Fout bij het lezen van CSV bestand', 'error');
@@ -2814,9 +2908,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           const parseResult = await this.parseCsvData(csvText);
           const importedTransactions = parseResult.transactions;
           const csvDuplicateCount = parseResult.duplicateCount;
+          const skippedInvalid = parseResult.skippedInvalid || 0;
 
           if (importedTransactions.length === 0 && csvDuplicateCount === 0) {
-            showToast('Geen geldige transacties gevonden. Controleer de kolom mapping.', 'error');
+            const skipHint = skippedInvalid > 0
+              ? ` (${skippedInvalid} regels overgeslagen: check kolom mapping of CSV-formaat)`
+              : '';
+            showToast(`Geen geldige transacties gevonden. Controleer de kolom mapping.${skipHint}`, 'error');
             return;
           }
 
@@ -2840,8 +2938,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
           }
 
-          if (csvDuplicateCount > 0) {
-            showToast(`${importedCount} transacties geïmporteerd, ${csvDuplicateCount} duplicates overgeslagen`, 'success');
+          if (csvDuplicateCount > 0 || skippedInvalid > 0) {
+            const parts = [`${importedCount} transacties geïmporteerd`];
+            if (csvDuplicateCount > 0) parts.push(`${csvDuplicateCount} duplicates overgeslagen`);
+            if (skippedInvalid > 0) parts.push(`${skippedInvalid} ongeldige regels overgeslagen`);
+            showToast(parts.join(', '), 'success');
           } else {
             showToast(`${importedCount} transacties geïmporteerd`, 'success');
           }
@@ -2854,94 +2955,72 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
 
       async parseCsvData(csvText) {
-        const lines = csvText.split('\n').filter(line => line.trim());
+        const lines = csvText.split(/\r?\n/).filter(line => line.trim());
         const delimiter = this.csvMapping.delimiter;
-        const dateIndex = this.csvMapping.date !== '' ? parseInt(this.csvMapping.date) : -1;
-        const nameIndex = this.csvMapping.name !== '' ? parseInt(this.csvMapping.name) : -1;
-        const descriptionIndex = this.csvMapping.description !== '' ? parseInt(this.csvMapping.description) : -1;
-        const amountIndex = this.csvMapping.amount !== '' ? parseInt(this.csvMapping.amount) : -1;
-        const balanceIndex = this.csvMapping.balance !== '' ? parseInt(this.csvMapping.balance) : -1;
-        const accountIndex = this.csvMapping.account !== '' ? parseInt(this.csvMapping.account) : -1;
-        const categoryIndex = this.csvMapping.category !== '' ? parseInt(this.csvMapping.category) : -1;
+        const dateIndex = this.csvMapping.date !== '' ? parseInt(this.csvMapping.date, 10) : -1;
+        const nameIndex = this.csvMapping.name !== '' ? parseInt(this.csvMapping.name, 10) : -1;
+        const descriptionIndex = this.csvMapping.description !== '' ? parseInt(this.csvMapping.description, 10) : -1;
+        const amountIndex = this.csvMapping.amount !== '' ? parseInt(this.csvMapping.amount, 10) : -1;
+        const balanceIndex = this.csvMapping.balance !== '' ? parseInt(this.csvMapping.balance, 10) : -1;
+        const accountIndex = this.csvMapping.account !== '' ? parseInt(this.csvMapping.account, 10) : -1;
+        const categoryIndex = this.csvMapping.category !== '' ? parseInt(this.csvMapping.category, 10) : -1;
 
         const transactions = [];
         let duplicateCount = 0;
+        let skippedInvalid = 0;
 
-        for (let i = 1; i < lines.length; i++) { // Skip header
-          const columns = lines[i].split(delimiter).map(col => col.replace(/"/g, '').trim());
+        if (dateIndex === -1 || amountIndex === -1) {
+          return { transactions, duplicateCount, skippedInvalid };
+        }
 
-          // Check if required columns are mapped
-          if (dateIndex === -1 || descriptionIndex === -1 || amountIndex === -1) {
-            continue; // Skip if required columns not mapped
-          }
+        const getCell = (columns, index) => (index >= 0 && index < columns.length ? columns[index] : '');
 
-          // Calculate max index for validation
-          const indices = [dateIndex, nameIndex, descriptionIndex, amountIndex, balanceIndex, accountIndex, categoryIndex].filter(i => i !== -1);
+        for (let i = 1; i < lines.length; i++) {
+          const columns = parseCsvRow(lines[i], delimiter);
+
+          const indices = [dateIndex, nameIndex, descriptionIndex, amountIndex, balanceIndex, accountIndex, categoryIndex].filter(idx => idx !== -1);
           const maxIndex = indices.length > 0 ? Math.max(...indices) : 0;
-
           if (columns.length <= maxIndex) {
-            continue; // Skip malformed lines
-          }
-
-          const dateStr = columns[dateIndex];
-          const nameStr = nameIndex !== -1 ? columns[nameIndex] : '';
-          const description = descriptionIndex !== -1 ? columns[descriptionIndex] : '';
-          const amountStr = columns[amountIndex].replace(',', '.');
-          const balanceStr = balanceIndex !== -1 ? columns[balanceIndex] : '';
-          const accountStr = accountIndex !== -1 ? columns[accountIndex] : '';
-          const categoryStr = categoryIndex !== -1 ? columns[categoryIndex] : '';
-
-          // Parse date - Verbeterde versie voor juiste dag-maand-jaar parsing
-          let date;
-          try {
-            if (dateStr.includes('-') || dateStr.includes('/')) {
-              const separator = dateStr.includes('-') ? '-' : '/';
-              const parts = dateStr.split(separator);
-              // Forceer formaat: Dag [0], Maand [1], Jaar [2]
-              if (parts.length === 3) {
-                const day = parts[0].padStart(2, '0');
-                const month = parts[1].padStart(2, '0');
-                const year = parts[2].length === 2 ? '20' + parts[2] : parts[2];
-                date = `${year}-${month}-${day}`;
-              }
-            } else {
-              date = new Date(dateStr).toISOString().split('T')[0];
-            }
-          } catch (error) {
-            console.warn('Could not parse date:', dateStr);
+            skippedInvalid += 1;
             continue;
           }
 
-          // Parse amount
-          let amount;
-          try {
-            amount = parseFloat(amountStr);
-            if (isNaN(amount)) continue;
-          } catch (error) {
-            console.warn('Could not parse amount:', amountStr);
+          const dateStr = getCell(columns, dateIndex);
+          const nameStr = getCell(columns, nameIndex);
+          const description = getCell(columns, descriptionIndex);
+          const amountStr = getCell(columns, amountIndex);
+          const balanceStr = getCell(columns, balanceIndex);
+          const accountStr = getCell(columns, accountIndex);
+          const categoryStr = getCell(columns, categoryIndex);
+
+          const date = parseCsvDate(dateStr);
+          if (!date) {
+            skippedInvalid += 1;
             continue;
           }
 
-          // Build description from available fields
+          const amount = parseCsvAmount(amountStr);
+          if (Number.isNaN(amount)) {
+            skippedInvalid += 1;
+            continue;
+          }
+
           let finalDescription = '';
           if (nameStr) finalDescription += nameStr;
           if (description) finalDescription += (finalDescription ? ' - ' : '') + description;
-          if (!finalDescription) finalDescription = "Geen omschrijving";
+          if (!finalDescription) finalDescription = 'Geen omschrijving';
 
-          // Map category to existing categories or use "Not defined"
           let finalCategory = 'Not defined';
           if (categoryStr) {
-            // Try to find existing category (case insensitive)
             const existingCategory = this.categories.find(c =>
               c.name.toLowerCase() === categoryStr.toLowerCase().trim()
             );
             if (existingCategory) {
               finalCategory = existingCategory.name;
             } else {
-              // Create new category
               const newCategory = {
                 name: categoryStr.trim(),
-                color: '#6b7280', // Default gray color
+                color: '#6b7280',
                 budget: 0
               };
               try {
@@ -2954,28 +3033,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
           }
 
-          if (date && !isNaN(amount)) {
-            const newTransaction = {
-              date,
-              name: nameStr || '',
-              description: finalDescription,
-              amount,
-              balance: balanceStr ? parseFloat(balanceStr.replace(',', '.')) : null,
-              category: finalCategory,
-              account: accountStr || ''
-            };
+          const newTransaction = {
+            date,
+            name: nameStr || '',
+            description: finalDescription,
+            amount,
+            balance: balanceStr ? parseCsvAmount(balanceStr) : null,
+            category: finalCategory,
+            account: accountStr || ''
+          };
 
-            // Check for duplicates
-            if (!this.isDuplicateTransaction(newTransaction)) {
-              transactions.push(newTransaction);
-            } else {
-              console.log('Skipping duplicate transaction:', newTransaction);
-              duplicateCount++;
-            }
+          if (!this.isDuplicateTransaction(newTransaction)) {
+            transactions.push(newTransaction);
+          } else {
+            duplicateCount += 1;
           }
         }
 
-        return { transactions, duplicateCount };
+        return { transactions, duplicateCount, skippedInvalid };
       },
 
       // Check if a transaction is a duplicate of an existing one
