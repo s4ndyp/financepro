@@ -214,6 +214,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         showTransactionModal: false,
         showCategoryModal: false,
         showRuleModal: false,
+        applyingRuleId: null,
         showBulkEditModal: false,
         showCsvImportModal: false,
 
@@ -2874,6 +2875,67 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
 
+      didRuleActionChangeTransaction(before, after, action) {
+        switch (action.type) {
+          case 'set_category':
+            return before.category !== after.category;
+          case 'set_description':
+            return before.description !== after.description;
+          default:
+            return false;
+        }
+      },
+
+      async applyRuleToExistingRecords(rule) {
+        if (this.applyingRuleId) return;
+
+        if (!confirm(`Regel "${rule.name}" nu toepassen op alle bestaande transacties?`)) {
+          return;
+        }
+
+        this.applyingRuleId = rule.id;
+        try {
+          this.isLoadingTransactions = true;
+          const { items: allTransactions } = await db.listRecords('transactions', { sort: '-date' });
+          let appliedTimes = 0;
+
+          for (const transaction of allTransactions) {
+            if (!this.checkRuleCondition(transaction, rule.condition)) {
+              continue;
+            }
+
+            const processed = this.applyRuleAction(transaction, rule.action);
+            if (!this.didRuleActionChangeTransaction(transaction, processed, rule.action)) {
+              continue;
+            }
+
+            await db.saveDocument('transactions', processed);
+            appliedTimes++;
+          }
+
+          if (appliedTimes > 0) {
+            await db.saveDocument('rules', {
+              ...rule,
+              appliedCount: (rule.appliedCount || 0) + appliedTimes
+            });
+          }
+
+          await this.refreshData();
+          showToast(
+            appliedTimes > 0
+              ? `Regel toegepast op ${appliedTimes} transactie(s)`
+              : 'Geen transacties gewijzigd (geen matches of stond al goed)',
+            appliedTimes > 0 ? 'success' : 'info'
+          );
+        } catch (error) {
+          console.error('Error applying rule to existing records:', error);
+          showToast('Fout bij toepassen regel', 'error');
+        } finally {
+          this.applyingRuleId = null;
+          this.isLoadingTransactions = false;
+        }
+      },
+
       async applyRulesToTransaction(transaction) {
         let processedTransaction = { ...transaction };
 
@@ -2919,8 +2981,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       checkRuleCondition(transaction, condition) {
         const fieldValue = transaction[condition.field];
+        if (fieldValue == null || fieldValue === '') {
+          return false;
+        }
+
         const conditionValue = condition.value.toLowerCase();
-        const fieldValueLower = fieldValue.toLowerCase();
+        const fieldValueLower = String(fieldValue).toLowerCase();
 
         switch (condition.operator) {
           case 'contains':

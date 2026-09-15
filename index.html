@@ -603,7 +603,14 @@
                                     </p>
                                 </div>
                             </div>
-                            <div class="flex items-center gap-2">
+                            <div class="flex items-center gap-2 flex-wrap justify-end">
+                                <button @click="applyRuleToExistingRecords(rule)"
+                                        :disabled="applyingRuleId === rule.id"
+                                        class="py-1.5 px-3 bg-primary/20 text-primary rounded-lg hover:bg-primary hover:text-white transition flex items-center gap-2 text-xs font-semibold disabled:opacity-50 disabled:pointer-events-none"
+                                        title="Voer deze regel uit op alle bestaande transacties">
+                                    <i :class="applyingRuleId === rule.id ? 'fas fa-spinner fa-spin' : 'fas fa-bolt'"></i>
+                                    Nu toepassen
+                                </button>
                                 <button @click="toggleRuleActive(rule)" class="w-8 h-8 rounded-lg transition flex items-center justify-center text-xs"
                                         :class="rule.active ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'">
                                     <i :class="rule.active ? 'fas fa-toggle-on' : 'fas fa-toggle-off'"></i>
