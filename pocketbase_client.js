@@ -45,8 +45,7 @@ class PocketBaseClient {
         return payload;
     }
 
-    async getCollection(name) {
-        const url = `${this._recordsUrl(name)}?perPage=500&sort=-id`;
+    async _fetchJson(url, errorLabel = 'Server error') {
         const response = await fetch(url, { headers: this._headers() });
         if (!response.ok) {
             let detail = '';
@@ -54,11 +53,27 @@ class PocketBaseClient {
                 const err = await response.json();
                 if (err.message) detail = `: ${err.message}`;
             } catch (_) { /* ignore */ }
-            throw new Error(`Server error: ${response.status}${detail}`);
+            throw new Error(`${errorLabel}: ${response.status}${detail}`);
         }
-        const body = await response.json();
-        const items = Array.isArray(body) ? body : (body.items || []);
-        return items.map((item) => this._mapRecord(item));
+        return response.json();
+    }
+
+    async getCollection(name) {
+        const perPage = 500;
+        let page = 1;
+        let totalPages = 1;
+        const allItems = [];
+
+        do {
+            const url = `${this._recordsUrl(name)}?perPage=${perPage}&page=${page}&sort=-id`;
+            const body = await this._fetchJson(url);
+            const items = Array.isArray(body) ? body : (body.items || []);
+            allItems.push(...items.map((item) => this._mapRecord(item)));
+            totalPages = body.totalPages || 1;
+            page += 1;
+        } while (page <= totalPages);
+
+        return allItems;
     }
 
     async saveDocument(name, data) {
