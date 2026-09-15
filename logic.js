@@ -446,6 +446,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return [
           { value: 'this_month', label: 'Deze maand' },
           { value: 'last_month', label: 'Vorige maand' },
+          { value: 'this_year', label: 'Dit jaar tot nu toe' },
           { value: 'last_6_months', label: 'Laatste 6 maanden' },
           { value: 'last_12_months', label: 'Laatste 12 maanden' }
         ];
@@ -811,6 +812,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             startDate = new Date(lastMonthDate.getFullYear(), lastMonthDate.getMonth(), 1);
             endDate = new Date(lastMonthDate.getFullYear(), lastMonthDate.getMonth() + 1, 0, 23, 59, 59);
             break;
+          case 'this_year':
+            // Kalenderjaar tot vandaag
+            startDate = new Date(now.getFullYear(), 0, 1);
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+            break;
           case 'last_6_months':
             // Laatste 6 VOLLEDIGE maanden zonder de huidige maand
             // Bijv. als het nu februari 2026 is: van juli 2025 tot januari 2026
@@ -936,6 +942,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           case 'last_month':
             numMonths = 1;
             break;
+          case 'this_year':
+            numMonths = now.getMonth() + 1;
+            break;
           case 'last_6_months':
             numMonths = 6;
             break;
@@ -1012,6 +1021,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           case 'this_month':
           case 'last_month':
             numMonths = 1;
+            break;
+          case 'this_year':
+            numMonths = now.getMonth() + 1;
             break;
           case 'last_6_months':
             numMonths = 6;
@@ -1094,6 +1106,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           case 'this_month':
           case 'last_month':
             numMonths = 1;
+            break;
+          case 'this_year':
+            numMonths = now.getMonth() + 1;
             break;
           case 'last_6_months':
             numMonths = 6;
@@ -1703,6 +1718,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Determine number of months based on time range
         let numMonths;
         switch (this.selectedTimeRange) {
+          case 'this_year':
+            numMonths = now.getMonth() + 1;
+            break;
           case 'last_6_months':
             numMonths = 6;
             break;
@@ -1900,6 +1918,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Determine number of months based on time range
         let numMonths;
         switch (this.selectedTimeRange) {
+          case 'this_year':
+            numMonths = now.getMonth() + 1;
+            break;
           case 'last_6_months':
             numMonths = 6;
             break;
@@ -2208,6 +2229,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           case 'last_month':
             // For last month, show last month + 5 previous months for context
             numMonths = 6;
+            break;
+          case 'this_year':
+            numMonths = now.getMonth() + 1;
             break;
           case 'last_6_months':
             numMonths = 6;
