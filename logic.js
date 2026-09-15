@@ -3073,6 +3073,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           let importedCount = 0;
           let duplicateCount = 0;
+          let failedSaveCount = 0;
 
           for (const transaction of importedTransactions) {
             try {
@@ -3081,15 +3082,17 @@ document.addEventListener('DOMContentLoaded', async () => {
               await db.saveDocument('transactions', processedTransaction);
               importedCount++;
             } catch (error) {
+              failedSaveCount++;
               console.warn('Failed to import transaction:', transaction, error);
             }
           }
 
-          if (csvDuplicateCount > 0 || skippedInvalid > 0) {
+          if (csvDuplicateCount > 0 || skippedInvalid > 0 || failedSaveCount > 0) {
             const parts = [`${importedCount} transacties geïmporteerd`];
             if (csvDuplicateCount > 0) parts.push(`${csvDuplicateCount} duplicates overgeslagen`);
             if (skippedInvalid > 0) parts.push(`${skippedInvalid} ongeldige regels overgeslagen`);
-            showToast(parts.join(', '), 'success');
+            if (failedSaveCount > 0) parts.push(`${failedSaveCount} mislukt bij opslaan`);
+            showToast(parts.join(', '), failedSaveCount > 0 ? 'error' : 'success');
           } else {
             showToast(`${importedCount} transacties geïmporteerd`, 'success');
           }
@@ -3159,6 +3162,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (description) finalDescription += (finalDescription ? ' - ' : '') + description;
           if (!finalDescription) finalDescription = 'Geen omschrijving';
 
+          const nameValue = (nameStr && nameStr.trim())
+            ? nameStr.trim()
+            : finalDescription.slice(0, 500);
+
           let finalCategory = 'Not defined';
           if (categoryStr) {
             const existingCategory = this.categories.find(c =>
@@ -3184,7 +3191,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           const newTransaction = {
             date,
-            name: nameStr || '',
+            name: nameValue,
             description: finalDescription,
             amount,
             balance: balanceStr ? parseCsvAmount(balanceStr) : null,
