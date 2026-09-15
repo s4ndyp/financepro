@@ -314,6 +314,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Insights data
         topSpendingCategories: [],
+        /** Volledige transacties voor vaste kolommen in Categorie Statistieken (niet gekoppeld aan periodefilter) */
+        insightsStatsTransactions: [],
 
         // Category budgets (stored in local storage)
         categoryBudgets: {},
@@ -573,6 +575,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         return `${year}-${month}-${day}`;
       },
 
+      getCategoryStatisticsDateRange() {
+        const now = new Date();
+        const startDate = new Date(now.getFullYear() - 1, 0, 1);
+        const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+        return { startDate, endDate };
+      },
+
+      async loadInsightsStatsTransactions() {
+        const { startDate, endDate } = this.getCategoryStatisticsDateRange();
+        let options = {
+          sort: '-date',
+          filter: `date >= '${this.toIsoDate(startDate)}' && date <= '${this.toIsoDate(endDate)}'`
+        };
+
+        try {
+          const { items } = await db.listRecords('transactions', options);
+          this.insightsStatsTransactions = items;
+        } catch (error) {
+          if (options.sort === '-date') {
+            options.sort = '-id';
+            const { items } = await db.listRecords('transactions', options);
+            this.insightsStatsTransactions = items;
+            return;
+          }
+          throw error;
+        }
+      },
+
       hasActiveTransactionFilters() {
         const filters = this.transactionFilters;
         return Boolean(
@@ -650,6 +680,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           await this.loadTransactions(mode);
 
+          if (this.currentPage === 'insights') {
+            await this.loadInsightsStatsTransactions();
+          }
+
           this.updateCategoryStats();
           this.updateDashboardData();
 
@@ -710,11 +744,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             this.loadTransactions('recent');
           }
         } else if (this.analyticsPages().includes(page)) {
-          if (this.transactionsLoadMode !== 'analytics') {
-            this.loadTransactions('analytics').then(() => {
-              this.updateCategoryStats();
-              this.updateDashboardData();
-              if (page === 'insights') this.updateInsightsData();
+          const loadAnalytics = this.transactionsLoadMode !== 'analytics'
+            ? this.loadTransactions('analytics')
+            : Promise.resolve();
+
+          loadAnalytics.then(() => {
+            this.updateCategoryStats();
+            this.updateDashboardData();
+            if (page === 'insights') this.updateInsightsData();
+          });
+
+          if (page === 'insights') {
+            this.loadInsightsStatsTransactions().then(() => {
+              this.$forceUpdate();
             });
           }
         }
@@ -774,12 +816,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.showTimeRangeFilter = false;
 
         if (this.analyticsPages().includes(this.currentPage)) {
+          if (this.currentPage === 'insights') {
+            this.updateCategoryStats();
+            this.updateDashboardData();
+            this.updateInsightsData();
+            return;
+          }
+
           this.loadTransactions('analytics').then(() => {
             this.updateCategoryStats();
             this.updateDashboardData();
-            if (this.currentPage === 'insights') {
-              this.updateInsightsData();
-            }
           });
           return;
         }
@@ -2007,14 +2053,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         const now = new Date();
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
+        const previousYear = currentYear - 1;
 
         // Get all categories from current category list
         const categories = this.categories.map(cat => cat.name).sort();
 
+        const transactionSource =
+          this.currentPage === 'insights' && this.insightsStatsTransactions.length
+            ? this.insightsStatsTransactions
+            : this.transactions;
+
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
-          : this.transactions;
+          ? transactionSource.filter(t => t.account === this.selectedAccount)
+          : transactionSource;
 
         const statistics = {};
 
@@ -2037,38 +2089,36 @@ document.addEventListener('DOMContentLoaded', async () => {
           const lastMonth = monthlyTotals[`${currentYear}-${currentMonth - 1}`] ||
                            monthlyTotals[`${currentYear - 1}-${11}`] || 0;
 
-          // Calculate averages for 2025
-          const year2025Months = [];
-          for (let month = 0; month < 12; month++) {
-            const key = `2025-${month}`;
-            year2025Months.push(monthlyTotals[key] || 0);
+          const last12MonthsRolling = [];
+          for (let i = 11; i >= 0; i--) {
+            const date = new Date(currentYear, currentMonth - i, 1);
+            last12MonthsRolling.push(monthlyTotals[`${date.getFullYear()}-${date.getMonth()}`] || 0);
           }
-
-          // Calculate average for 2025 - average of months with data
-          const monthsWithData = year2025Months.filter(amount => amount > 0);
-          const avg2025 = monthsWithData.length > 0
-            ? monthsWithData.reduce((sum, val) => sum + val, 0) / monthsWithData.length
+          const last12MonthsWithData = last12MonthsRolling.filter(amount => amount > 0);
+          const avgLast12Months = last12MonthsWithData.length > 0
+            ? last12MonthsWithData.reduce((sum, val) => sum + val, 0) / last12MonthsWithData.length
             : 0;
 
-          // For backward compatibility, keep the old calculations but base them on 2025
-          const last6Months = year2025Months.slice(Math.max(0, currentMonth - 5), currentMonth + 1);
-          const last6MonthsWithData = last6Months.filter(amount => amount > 0);
+          const last6MonthsRolling = [];
+          for (let i = 5; i >= 0; i--) {
+            const date = new Date(currentYear, currentMonth - i, 1);
+            last6MonthsRolling.push(monthlyTotals[`${date.getFullYear()}-${date.getMonth()}`] || 0);
+          }
+          const last6MonthsWithData = last6MonthsRolling.filter(amount => amount > 0);
           const avgLast6Months = last6MonthsWithData.length > 0
             ? last6MonthsWithData.reduce((sum, val) => sum + val, 0) / last6MonthsWithData.length
             : 0;
 
-          // Previous year (2024) data
-          const previousYear = [];
+          const previousYearMonths = [];
           for (let month = 0; month < 12; month++) {
-            const key = `2024-${month}`;
-            previousYear.push(monthlyTotals[key] || 0);
+            previousYearMonths.push(monthlyTotals[`${previousYear}-${month}`] || 0);
           }
-          const avgPreviousYear = previousYear.reduce((sum, val) => sum + val, 0) / 12;
+          const avgPreviousYear = previousYearMonths.reduce((sum, val) => sum + val, 0) / 12;
 
           statistics[category] = {
             thisMonth,
             lastMonth,
-            avgLast12Months: avg2025, // Average of 2025 months with data
+            avgLast12Months,
             avgLast6Months,
             avgPreviousYear,
             // Helper for color logic: true if this month is higher than last month (worse)
