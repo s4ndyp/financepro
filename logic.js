@@ -148,6 +148,8 @@ function parseCsvDate(dateStr) {
 
 const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
 const API_URL = ''; // Zelfde origin; PocketBase serveert static + /api
+const TRANSACTIONS_DEFAULT_LIMIT = 500;
+const TRANSACTIONS_TABLE_PAGE_SIZE = 100;
 
 let db = null;
 let app = null;
@@ -282,6 +284,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         },
         selectedTransactions: [],
 
+        totalTransactionCount: 0,
+        transactionsLoadMode: 'recent',
+        isLoadingTransactions: false,
+        transactionTablePage: 1,
+        transactionFilterDebounce: null,
+
         // CSV Import
         csvPreview: [],
         selectedCsvFile: null,
@@ -380,6 +388,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
 
         return filtered;
+      },
+
+      paginatedFilteredTransactions() {
+        const start = (this.transactionTablePage - 1) * TRANSACTIONS_TABLE_PAGE_SIZE;
+        return this.filteredTransactions.slice(start, start + TRANSACTIONS_TABLE_PAGE_SIZE);
+      },
+
+      transactionTablePageCount() {
+        return Math.max(1, Math.ceil(this.filteredTransactions.length / TRANSACTIONS_TABLE_PAGE_SIZE));
+      },
+
+      transactionsLoadHint() {
+        if (this.totalTransactionCount <= this.transactions.length) return '';
+        if (this.transactionsLoadMode === 'recent') {
+          return `${this.transactions.length} van ${this.totalTransactionCount} transacties (meest recent). Gebruik zoek/filter of laad alles voor het volledige overzicht.`;
+        }
+        return `${this.transactions.length} van ${this.totalTransactionCount} transacties geladen.`;
       },
 
       // Select all checkbox state
@@ -539,41 +564,131 @@ document.addEventListener('DOMContentLoaded', async () => {
       // DATA MANAGEMENT
       // ============================================================================
 
-      async refreshData() {
+      toIsoDate(value) {
+        const date = value instanceof Date ? value : new Date(value);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      },
+
+      hasActiveTransactionFilters() {
+        const filters = this.transactionFilters;
+        return Boolean(
+          (filters.search && filters.search.trim()) ||
+          filters.category ||
+          filters.type ||
+          filters.period
+        );
+      },
+
+      analyticsPages() {
+        return ['dashboard', 'insights', 'statistieken', 'details'];
+      },
+
+      async loadTransactions(mode = 'recent') {
+        let options = { sort: '-date' };
+
+        if (mode === 'full' || mode === 'filtered') {
+          // all pages
+        } else if (mode === 'analytics') {
+          const { startDate, endDate } = this.getTimeRangeFilter();
+          options.filter = `date >= '${this.toIsoDate(startDate)}' && date <= '${this.toIsoDate(endDate)}'`;
+        } else {
+          options.maxRecords = TRANSACTIONS_DEFAULT_LIMIT;
+        }
+
         try {
-          const [transactions, categories, rules] = await Promise.all([
-            db.getCollection('transactions'),
+          const { items, totalItems } = await db.listRecords('transactions', options);
+          this.transactions = items;
+          this.totalTransactionCount = totalItems;
+          this.transactionsLoadMode = mode;
+          this.transactionTablePage = 1;
+          return;
+        } catch (error) {
+          if (options.sort === '-date') {
+            options.sort = '-id';
+            const { items, totalItems } = await db.listRecords('transactions', options);
+            this.transactions = items;
+            this.totalTransactionCount = totalItems;
+            this.transactionsLoadMode = mode;
+            this.transactionTablePage = 1;
+            return;
+          }
+          throw error;
+        }
+      },
+
+      async loadAllTransactions() {
+        await this.loadTransactions('full');
+        this.updateCategoryStats();
+        this.updateDashboardData();
+        showToast(`${this.transactions.length} transacties geladen`, 'success');
+      },
+
+      async refreshData(options = {}) {
+        try {
+          this.isLoadingTransactions = true;
+
+          const [categories, rules] = await Promise.all([
             db.getCollection('categories'),
             db.getCollection('rules')
           ]);
 
-          this.transactions = transactions || [];
           this.categories = categories || [];
           this.rules = rules || [];
 
-          // Calculate category statistics
+          let mode = options.mode || 'recent';
+          if (options.loadAllTransactions) {
+            mode = 'full';
+          } else if (this.hasActiveTransactionFilters()) {
+            mode = 'full';
+          } else if (this.analyticsPages().includes(this.currentPage)) {
+            mode = 'analytics';
+          }
+
+          await this.loadTransactions(mode);
+
           this.updateCategoryStats();
-
-          // No default categories or demo data
-
-          // Apply rules to existing transactions
-          await this.applyRulesToTransactions();
-
-          // Update dashboard data
           this.updateDashboardData();
 
-          // Update insights data (only if we're on the insights page)
           if (this.currentPage === 'insights') {
             this.updateInsightsData();
           }
 
-          console.log(`[FinancePro] Data refreshed: ${this.transactions.length} transactions, ${this.categories.length} categories, ${this.rules.length} rules`);
+          console.log(`[FinancePro] Data refreshed (${mode}): ${this.transactions.length}/${this.totalTransactionCount} transactions`);
         } catch (error) {
           console.error('[FinancePro] Error refreshing data:', error);
           showToast('Fout bij het laden van data', 'error');
+        } finally {
+          this.isLoadingTransactions = false;
         }
       },
 
+      scheduleTransactionFilterReload() {
+        clearTimeout(this.transactionFilterDebounce);
+        this.transactionFilterDebounce = setTimeout(async () => {
+          if (this.currentPage !== 'transactions') return;
+          try {
+            this.isLoadingTransactions = true;
+            if (this.hasActiveTransactionFilters()) {
+              await this.loadTransactions('full');
+            } else {
+              await this.loadTransactions('recent');
+            }
+            this.updateCategoryStats();
+          } catch (error) {
+            console.error('[FinancePro] Filter reload failed:', error);
+          } finally {
+            this.isLoadingTransactions = false;
+          }
+        }, 350);
+      },
+
+      goToTransactionTablePage(page) {
+        const next = Math.min(Math.max(1, page), this.transactionTablePageCount);
+        this.transactionTablePage = next;
+      },
 
 
       // ============================================================================
@@ -584,6 +699,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('Changing page to:', page);
         this.currentPage = page;
         this.showMobileMenu = false;
+
+        if (page === 'transactions') {
+          if (this.hasActiveTransactionFilters()) {
+            if (this.transactionsLoadMode !== 'full') {
+              this.loadTransactions('full');
+            }
+          } else if (this.transactionsLoadMode !== 'recent') {
+            this.loadTransactions('recent');
+          }
+        } else if (this.analyticsPages().includes(page)) {
+          if (this.transactionsLoadMode !== 'analytics') {
+            this.loadTransactions('analytics').then(() => {
+              this.updateCategoryStats();
+              this.updateDashboardData();
+              if (page === 'insights') this.updateInsightsData();
+            });
+          }
+        }
 
         // Update insights data when navigating to insights page
         if (page === 'insights') {
@@ -638,6 +771,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       setSelectedTimeRange(timeRange) {
         this.selectedTimeRange = timeRange;
         this.showTimeRangeFilter = false;
+
+        if (this.analyticsPages().includes(this.currentPage)) {
+          this.loadTransactions('analytics').then(() => {
+            this.updateCategoryStats();
+            this.updateDashboardData();
+            if (this.currentPage === 'insights') {
+              this.updateInsightsData();
+            }
+          });
+          return;
+        }
 
         // Refresh data when time range changes
         if (this.currentPage === 'insights') {
@@ -2905,6 +3049,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         try {
           const csvText = await this.selectedCsvFile.text();
+          if (this.transactionsLoadMode !== 'full') {
+            await this.loadTransactions('full');
+          }
           const parseResult = await this.parseCsvData(csvText);
           const importedTransactions = parseResult.transactions;
           const csvDuplicateCount = parseResult.duplicateCount;
@@ -2947,7 +3094,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast(`${importedCount} transacties geïmporteerd`, 'success');
           }
           this.closeCsvImportModal();
-          await this.refreshData();
+          await this.loadTransactions('full');
+          this.updateCategoryStats();
+          this.updateDashboardData();
         } catch (error) {
           console.error('Error processing CSV:', error);
           showToast('Fout bij verwerken CSV bestand', 'error');
@@ -3094,6 +3243,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     },
 
     mounted() {
+      this.$watch(
+        () => ({ ...this.transactionFilters }),
+        () => {
+          this.transactionTablePage = 1;
+          this.scheduleTransactionFilterReload();
+        },
+        { deep: true }
+      );
+
       // Load saved theme
       const savedTheme = localStorage.getItem('financepro_theme') || 'indigo';
       this.settings.themeColor = savedTheme;
