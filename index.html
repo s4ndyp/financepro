@@ -1148,7 +1148,7 @@
 
                 <div class="border-t border-gray-700 pt-6">
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Data backup</label>
-                    <p class="text-sm text-gray-400 mb-3">Exporteer categorieën en transacties naar een JSON-bestand om op een andere FinancePro-server te importeren.</p>
+                    <p class="text-sm text-gray-400 mb-3">Exporteer categorieën, transacties, automatische regels en categorie-budgetten naar een JSON-bestand voor import op een andere server.</p>
                     <div class="flex flex-wrap gap-2">
                         <button @click="exportFinanceProBackup" :disabled="isExportingBackup"
                                 class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm disabled:opacity-50">
@@ -1493,7 +1493,7 @@
             </h3>
             <p class="text-gray-400 text-sm mb-4">
                 Kies een JSON-bestand dat met Backup export is gemaakt.
-                Categorieën en transacties worden toegevoegd; duplicates worden overgeslagen.
+                Categorieën, transacties, regels en budgetten worden overgenomen; duplicate transacties en regels (zelfde naam) worden overgeslagen.
             </p>
             <div class="bg-gray-800/50 p-4 rounded-xl border border-gray-700 mb-6">
                 <input type="file" ref="backupFileInput" class="hidden" accept=".json,application/json" @change="handleBackupFileSelect">
