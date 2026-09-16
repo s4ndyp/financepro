@@ -150,7 +150,7 @@ const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
 const API_URL = ''; // Zelfde origin; PocketBase serveert static + /api
 const TRANSACTIONS_DEFAULT_LIMIT = 500;
 const FINANCEPRO_BACKUP_FORMAT = 'financepro-backup';
-const FINANCEPRO_BACKUP_VERSION = 1;
+const FINANCEPRO_BACKUP_VERSION = 2;
 const TRANSACTIONS_TABLE_PAGE_SIZE = 100;
 
 let db = null;
@@ -3031,6 +3031,46 @@ document.addEventListener('DOMContentLoaded', async () => {
       // BACKUP EXPORT / IMPORT
       // ============================================================================
 
+      sanitizeRuleForBackup(rule) {
+        return {
+          name: rule.name,
+          condition: rule.condition,
+          action: rule.action,
+          active: rule.active !== false,
+          appliedCount: rule.appliedCount != null ? Number(rule.appliedCount) : 0
+        };
+      },
+
+      getCategoryBudgetsForBackup() {
+        try {
+          const saved = JSON.parse(localStorage.getItem('financepro_category_budgets') || '{}');
+          if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+            return saved;
+          }
+        } catch (_) { /* ignore */ }
+        return { ...this.categoryBudgets };
+      },
+
+      applyImportedCategoryBudgets(budgets) {
+        if (!budgets || typeof budgets !== 'object' || Array.isArray(budgets)) {
+          return 0;
+        }
+
+        let count = 0;
+        const merged = { ...this.categoryBudgets };
+        for (const [name, value] of Object.entries(budgets)) {
+          if (!name) continue;
+          const budget = parseFloat(value);
+          if (Number.isNaN(budget) || budget < 0) continue;
+          merged[name] = budget;
+          count++;
+        }
+
+        this.categoryBudgets = merged;
+        localStorage.setItem('financepro_category_budgets', JSON.stringify(merged));
+        return count;
+      },
+
       sanitizeCategoryForBackup(category) {
         return {
           name: category.name,
@@ -3071,8 +3111,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         this.isExportingBackup = true;
         try {
-          const [categories, { items: transactions }] = await Promise.all([
+          this.loadCategoryBudgets();
+          const [categories, rules, { items: transactions }] = await Promise.all([
             db.getCollection('categories'),
+            db.getCollection('rules'),
             db.listRecords('transactions', { sort: '-date' })
           ]);
 
@@ -3081,13 +3123,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             version: FINANCEPRO_BACKUP_VERSION,
             exportedAt: new Date().toISOString(),
             categories: (categories || []).map(c => this.sanitizeCategoryForBackup(c)),
-            transactions: transactions.map(t => this.sanitizeTransactionForBackup(t))
+            transactions: transactions.map(t => this.sanitizeTransactionForBackup(t)),
+            rules: (rules || []).map(r => this.sanitizeRuleForBackup(r)),
+            categoryBudgets: this.getCategoryBudgetsForBackup()
           };
 
           const stamp = new Date().toISOString().slice(0, 10);
           this.downloadJsonFile(payload, `financepro-backup-${stamp}.json`);
+          const budgetCount = Object.keys(payload.categoryBudgets || {}).length;
           showToast(
-            `Export klaar: ${payload.categories.length} categorieën, ${payload.transactions.length} transacties`,
+            `Export klaar: ${payload.categories.length} categorieën, ${payload.transactions.length} transacties, ${payload.rules.length} regels, ${budgetCount} budgetten`,
             'success'
           );
         } catch (error) {
@@ -3127,6 +3172,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         if (!Array.isArray(data.categories) || !Array.isArray(data.transactions)) {
           throw new Error('Backup mist categorieën of transacties');
+        }
+        if (data.rules != null && !Array.isArray(data.rules)) {
+          throw new Error('Backup heeft ongeldige regels');
+        }
+        if (data.categoryBudgets != null && (typeof data.categoryBudgets !== 'object' || Array.isArray(data.categoryBudgets))) {
+          throw new Error('Backup heeft ongeldige budgetten');
         }
         return data;
       },
@@ -3204,6 +3255,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           await this.ensureCategoryExists('Not defined', { color: '#6b7280', budget: 0 });
 
+          let rulesImported = 0;
+          this.rules = await db.getCollection('rules') || [];
+          for (const rawRule of backup.rules || []) {
+            if (!rawRule || !rawRule.name || !rawRule.condition || !rawRule.action) {
+              continue;
+            }
+            const duplicateRule = this.rules.some(
+              r => r.name && r.name.toLowerCase() === String(rawRule.name).toLowerCase()
+            );
+            if (duplicateRule) {
+              continue;
+            }
+            await db.saveDocument('rules', {
+              name: String(rawRule.name).trim(),
+              condition: rawRule.condition,
+              action: rawRule.action,
+              active: rawRule.active !== false,
+              appliedCount: rawRule.appliedCount != null ? Number(rawRule.appliedCount) : 0
+            });
+            rulesImported++;
+          }
+
+          const budgetsImported = this.applyImportedCategoryBudgets(backup.categoryBudgets);
+
           let importedCount = 0;
           let duplicateCount = 0;
           let failedCount = 0;
@@ -3239,6 +3314,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           const parts = [`${importedCount} transacties geïmporteerd`];
           if (categoriesCreated > 0) parts.push(`${categoriesCreated} categorieën toegevoegd`);
+          if (rulesImported > 0) parts.push(`${rulesImported} regels toegevoegd`);
+          if (budgetsImported > 0) parts.push(`${budgetsImported} budgetten overgenomen`);
           if (duplicateCount > 0) parts.push(`${duplicateCount} duplicates overgeslagen`);
           if (failedCount > 0) parts.push(`${failedCount} mislukt`);
           showToast(parts.join(', '), failedCount > 0 ? 'error' : 'success');
