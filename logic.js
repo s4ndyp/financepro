@@ -3188,6 +3188,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const text = await this.selectedBackupFile.text();
           const backup = this.parseFinanceProBackup(text);
 
+          this.categories = await db.getCollection('categories') || [];
           await this.loadTransactions('full');
 
           let categoriesCreated = 0;
