@@ -149,6 +149,8 @@ function parseCsvDate(dateStr) {
 const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
 const API_URL = ''; // Zelfde origin; PocketBase serveert static + /api
 const TRANSACTIONS_DEFAULT_LIMIT = 500;
+const FINANCEPRO_BACKUP_FORMAT = 'financepro-backup';
+const FINANCEPRO_BACKUP_VERSION = 2;
 const TRANSACTIONS_TABLE_PAGE_SIZE = 100;
 
 let db = null;
@@ -295,6 +297,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         csvPreview: [],
         selectedCsvFile: null,
         csvColumns: [],
+
+        // Backup export/import (categories + transactions)
+        showBackupImportModal: false,
+        selectedBackupFile: null,
+        isExportingBackup: false,
+        isImportingBackup: false,
 
         // Column settings
         toggleColumnSettings: false,
@@ -3017,6 +3025,307 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         return updatedTransaction;
+      },
+
+      // ============================================================================
+      // BACKUP EXPORT / IMPORT
+      // ============================================================================
+
+      sanitizeRuleForBackup(rule) {
+        return {
+          name: rule.name,
+          condition: rule.condition,
+          action: rule.action,
+          active: rule.active !== false,
+          appliedCount: rule.appliedCount != null ? Number(rule.appliedCount) : 0
+        };
+      },
+
+      getCategoryBudgetsForBackup() {
+        try {
+          const saved = JSON.parse(localStorage.getItem('financepro_category_budgets') || '{}');
+          if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+            return saved;
+          }
+        } catch (_) { /* ignore */ }
+        return { ...this.categoryBudgets };
+      },
+
+      applyImportedCategoryBudgets(budgets) {
+        if (!budgets || typeof budgets !== 'object' || Array.isArray(budgets)) {
+          return 0;
+        }
+
+        let count = 0;
+        const merged = { ...this.categoryBudgets };
+        for (const [name, value] of Object.entries(budgets)) {
+          if (!name) continue;
+          const budget = parseFloat(value);
+          if (Number.isNaN(budget) || budget < 0) continue;
+          merged[name] = budget;
+          count++;
+        }
+
+        this.categoryBudgets = merged;
+        localStorage.setItem('financepro_category_budgets', JSON.stringify(merged));
+        return count;
+      },
+
+      sanitizeCategoryForBackup(category) {
+        return {
+          name: category.name,
+          color: category.color || '#6366f1',
+          budget: category.budget != null ? Number(category.budget) : 0
+        };
+      },
+
+      sanitizeTransactionForBackup(transaction) {
+        const payload = {
+          date: transaction.date,
+          name: transaction.name || '',
+          description: transaction.description || '',
+          amount: Number(transaction.amount),
+          account: transaction.account || '',
+          category: transaction.category || ''
+        };
+        if (transaction.balance != null && transaction.balance !== undefined && transaction.balance !== '') {
+          payload.balance = Number(transaction.balance);
+        }
+        return payload;
+      },
+
+      downloadJsonFile(data, filename) {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      },
+
+      async exportFinanceProBackup() {
+        if (this.isExportingBackup) return;
+
+        this.isExportingBackup = true;
+        try {
+          this.loadCategoryBudgets();
+          const [categories, rules, { items: transactions }] = await Promise.all([
+            db.getCollection('categories'),
+            db.getCollection('rules'),
+            db.listRecords('transactions', { sort: '-date' })
+          ]);
+
+          const payload = {
+            format: FINANCEPRO_BACKUP_FORMAT,
+            version: FINANCEPRO_BACKUP_VERSION,
+            exportedAt: new Date().toISOString(),
+            categories: (categories || []).map(c => this.sanitizeCategoryForBackup(c)),
+            transactions: transactions.map(t => this.sanitizeTransactionForBackup(t)),
+            rules: (rules || []).map(r => this.sanitizeRuleForBackup(r)),
+            categoryBudgets: this.getCategoryBudgetsForBackup()
+          };
+
+          const stamp = new Date().toISOString().slice(0, 10);
+          this.downloadJsonFile(payload, `financepro-backup-${stamp}.json`);
+          const budgetCount = Object.keys(payload.categoryBudgets || {}).length;
+          showToast(
+            `Export klaar: ${payload.categories.length} categorieën, ${payload.transactions.length} transacties, ${payload.rules.length} regels, ${budgetCount} budgetten`,
+            'success'
+          );
+        } catch (error) {
+          console.error('[FinancePro] Backup export failed:', error);
+          showToast('Fout bij exporteren', 'error');
+        } finally {
+          this.isExportingBackup = false;
+        }
+      },
+
+      openBackupImportModal() {
+        this.selectedBackupFile = null;
+        this.showBackupImportModal = true;
+      },
+
+      closeBackupImportModal() {
+        this.showBackupImportModal = false;
+        this.selectedBackupFile = null;
+      },
+
+      handleBackupFileSelect(event) {
+        const file = event.target.files && event.target.files[0];
+        this.selectedBackupFile = file || null;
+        event.target.value = '';
+      },
+
+      parseFinanceProBackup(text) {
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (_) {
+          throw new Error('Geen geldig JSON-bestand');
+        }
+
+        if (!data || data.format !== FINANCEPRO_BACKUP_FORMAT) {
+          throw new Error('Dit is geen FinancePro backupbestand');
+        }
+        if (!Array.isArray(data.categories) || !Array.isArray(data.transactions)) {
+          throw new Error('Backup mist categorieën of transacties');
+        }
+        if (data.rules != null && !Array.isArray(data.rules)) {
+          throw new Error('Backup heeft ongeldige regels');
+        }
+        if (data.categoryBudgets != null && (typeof data.categoryBudgets !== 'object' || Array.isArray(data.categoryBudgets))) {
+          throw new Error('Backup heeft ongeldige budgetten');
+        }
+        return data;
+      },
+
+      normalizeBackupTransaction(raw) {
+        const description = raw.description != null ? String(raw.description) : '';
+        const nameFromExport = raw.name != null ? String(raw.name).trim() : '';
+        const name = nameFromExport || description.trim() || 'Import';
+
+        const normalized = {
+          date: String(raw.date || '').trim(),
+          name: name.slice(0, 500),
+          description: description.slice(0, 2000),
+          amount: Number(raw.amount),
+          account: raw.account != null ? String(raw.account) : '',
+          category: raw.category != null ? String(raw.category) : 'Not defined'
+        };
+
+        if (raw.balance != null && raw.balance !== '') {
+          normalized.balance = Number(raw.balance);
+        }
+
+        return normalized;
+      },
+
+      async ensureCategoryExists(categoryName, defaults = {}) {
+        const trimmed = (categoryName || '').trim();
+        if (!trimmed) return 'Not defined';
+
+        const existing = this.categories.find(c => c.name.toLowerCase() === trimmed.toLowerCase());
+        if (existing) {
+          return existing.name;
+        }
+
+        const created = {
+          name: trimmed,
+          color: defaults.color || '#6b7280',
+          budget: defaults.budget != null ? Number(defaults.budget) : 0
+        };
+        await db.saveDocument('categories', created);
+        this.categories.push(created);
+        return created.name;
+      },
+
+      async importFinanceProBackup() {
+        if (this.isImportingBackup) return;
+        if (!this.selectedBackupFile) {
+          showToast('Selecteer eerst een backupbestand', 'error');
+          return;
+        }
+
+        if (!confirm('Backup importeren? Bestaande transacties met dezelfde datum, bedrag, omschrijving en rekening worden overgeslagen.')) {
+          return;
+        }
+
+        this.isImportingBackup = true;
+        try {
+          this.isLoadingTransactions = true;
+          const text = await this.selectedBackupFile.text();
+          const backup = this.parseFinanceProBackup(text);
+
+          this.categories = await db.getCollection('categories') || [];
+          await this.loadTransactions('full');
+
+          let categoriesCreated = 0;
+          for (const category of backup.categories) {
+            if (!category || !category.name) continue;
+            const before = this.categories.length;
+            await this.ensureCategoryExists(category.name, {
+              color: category.color,
+              budget: category.budget
+            });
+            if (this.categories.length > before) categoriesCreated++;
+          }
+
+          await this.ensureCategoryExists('Not defined', { color: '#6b7280', budget: 0 });
+
+          let rulesImported = 0;
+          this.rules = await db.getCollection('rules') || [];
+          for (const rawRule of backup.rules || []) {
+            if (!rawRule || !rawRule.name || !rawRule.condition || !rawRule.action) {
+              continue;
+            }
+            const duplicateRule = this.rules.some(
+              r => r.name && r.name.toLowerCase() === String(rawRule.name).toLowerCase()
+            );
+            if (duplicateRule) {
+              continue;
+            }
+            await db.saveDocument('rules', {
+              name: String(rawRule.name).trim(),
+              condition: rawRule.condition,
+              action: rawRule.action,
+              active: rawRule.active !== false,
+              appliedCount: rawRule.appliedCount != null ? Number(rawRule.appliedCount) : 0
+            });
+            rulesImported++;
+          }
+
+          const budgetsImported = this.applyImportedCategoryBudgets(backup.categoryBudgets);
+
+          let importedCount = 0;
+          let duplicateCount = 0;
+          let failedCount = 0;
+
+          for (const raw of backup.transactions) {
+            if (!raw || !raw.date || Number.isNaN(Number(raw.amount))) {
+              failedCount++;
+              continue;
+            }
+
+            const transaction = this.normalizeBackupTransaction(raw);
+            const categoryName = await this.ensureCategoryExists(transaction.category, { color: '#6b7280' });
+            transaction.category = categoryName;
+
+            if (this.isDuplicateTransaction(transaction)) {
+              duplicateCount++;
+              continue;
+            }
+
+            try {
+              const processed = await this.applyRulesToTransaction(transaction);
+              await db.saveDocument('transactions', processed);
+              this.transactions.push(processed);
+              importedCount++;
+            } catch (error) {
+              failedCount++;
+              console.warn('[FinancePro] Backup import row failed:', transaction, error);
+            }
+          }
+
+          await this.refreshData({ loadAllTransactions: true });
+          this.closeBackupImportModal();
+
+          const parts = [`${importedCount} transacties geïmporteerd`];
+          if (categoriesCreated > 0) parts.push(`${categoriesCreated} categorieën toegevoegd`);
+          if (rulesImported > 0) parts.push(`${rulesImported} regels toegevoegd`);
+          if (budgetsImported > 0) parts.push(`${budgetsImported} budgetten overgenomen`);
+          if (duplicateCount > 0) parts.push(`${duplicateCount} duplicates overgeslagen`);
+          if (failedCount > 0) parts.push(`${failedCount} mislukt`);
+          showToast(parts.join(', '), failedCount > 0 ? 'error' : 'success');
+        } catch (error) {
+          console.error('[FinancePro] Backup import failed:', error);
+          showToast(error.message || 'Fout bij importeren backup', 'error');
+        } finally {
+          this.isImportingBackup = false;
+          this.isLoadingTransactions = false;
+        }
       },
 
       // ============================================================================
