@@ -298,6 +298,13 @@
                         <button @click="openCsvImportModal" class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
                             <i class="fas fa-file-import"></i> CSV Import
                         </button>
+                        <button @click="exportFinanceProBackup" :disabled="isExportingBackup"
+                                class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm disabled:opacity-50">
+                            <i :class="isExportingBackup ? 'fas fa-spinner fa-spin' : 'fas fa-file-export'"></i> Backup export
+                        </button>
+                        <button @click="openBackupImportModal" class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
+                            <i class="fas fa-file-import"></i> Backup import
+                        </button>
                         <button @click="openAddTransactionModal" class="py-2 px-4 bg-primary hover:opacity-90 text-white font-semibold rounded-xl shadow-lg transition flex items-center gap-2 text-sm">
                             <i class="fas fa-plus"></i> Nieuwe Transactie
                         </button>
@@ -1139,6 +1146,21 @@
                     </div>
                 </div>
 
+                <div class="border-t border-gray-700 pt-6">
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Data backup</label>
+                    <p class="text-sm text-gray-400 mb-3">Exporteer categorieën en transacties naar een JSON-bestand om op een andere FinancePro-server te importeren.</p>
+                    <div class="flex flex-wrap gap-2">
+                        <button @click="exportFinanceProBackup" :disabled="isExportingBackup"
+                                class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm disabled:opacity-50">
+                            <i :class="isExportingBackup ? 'fas fa-spinner fa-spin' : 'fas fa-file-export'"></i> Exporteren
+                        </button>
+                        <button @click="openBackupImportModal"
+                                class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
+                            <i class="fas fa-file-import"></i> Importeren
+                        </button>
+                    </div>
+                </div>
+
             </div>
 
             <div class="mt-8 flex justify-end gap-2">
@@ -1458,6 +1480,32 @@
                 <button @click="closeCsvImportModal" class="px-4 py-2 text-gray-400 hover:text-white transition">Annuleren</button>
                 <button @click="processCsvImport" class="px-6 py-2 bg-primary hover:opacity-90 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
                     <i class="fas fa-check"></i> Importeren
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backup Import Modal -->
+    <div v-if="showBackupImportModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="closeBackupImportModal">
+        <div class="bg-dark_paper w-full max-w-lg rounded-2xl border border-gray-700 shadow-2xl p-6 flex flex-col">
+            <h3 class="font-bold text-lg text-white mb-2 flex items-center gap-2">
+                <i class="fas fa-file-import text-primary"></i> FinancePro backup importeren
+            </h3>
+            <p class="text-gray-400 text-sm mb-4">
+                Kies een <code class="text-gray-300">.json</code> bestand dat met <strong>Backup export</strong> is gemaakt.
+                Categorieën en transacties worden toegevoegd; duplicates worden overgeslagen.
+            </p>
+            <div class="bg-gray-800/50 p-4 rounded-xl border border-gray-700 mb-6">
+                <input type="file" ref="backupFileInput" class="hidden" accept=".json,application/json" @change="handleBackupFileSelect">
+                <button @click="$refs.backupFileInput.click()" class="w-full py-3 px-4 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg transition text-sm truncate">
+                    {{ selectedBackupFile ? selectedBackupFile.name : 'Selecteer backup JSON...' }}
+                </button>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button @click="closeBackupImportModal" class="px-4 py-2 text-gray-400 hover:text-white transition">Annuleren</button>
+                <button @click="importFinanceProBackup" :disabled="isImportingBackup || !selectedBackupFile"
+                        class="px-6 py-2 bg-primary hover:opacity-90 text-white font-bold rounded-lg shadow-lg flex items-center gap-2 disabled:opacity-50">
+                    <i :class="isImportingBackup ? 'fas fa-spinner fa-spin' : 'fas fa-check'"></i> Importeren
                 </button>
             </div>
         </div>
