@@ -1805,18 +1805,16 @@ document.addEventListener('DOMContentLoaded', async () => {
               labels: chart.labels,
               datasets: [{
                 type: 'bar',
-                label: 'Uitgaven',
-                data: chart.expenseData,
-                backgroundColor: '#ef4444',
-                borderColor: '#ef4444',
-                borderWidth: 1,
-                order: 2
-              }, {
-                type: 'bar',
-                label: 'Inkomsten',
-                data: chart.incomeData,
-                backgroundColor: '#10b981',
-                borderColor: '#10b981',
+                label: 'Netto per maand',
+                data: chart.netData,
+                backgroundColor: (context) => {
+                  const value = context.raw;
+                  return value >= 0 ? 'rgba(16, 185, 129, 0.85)' : 'rgba(239, 68, 68, 0.85)';
+                },
+                borderColor: (context) => {
+                  const value = context.raw;
+                  return value >= 0 ? '#10b981' : '#ef4444';
+                },
                 borderWidth: 1,
                 order: 2
               }, {
@@ -1845,14 +1843,39 @@ document.addEventListener('DOMContentLoaded', async () => {
                 y: {
                   ticks: {
                     color: '#9ca3af',
-                    callback: (value) => '€' + this.formatAmount(value)
+                    callback: (value) => {
+                      const prefix = value < 0 ? '−€' : '€';
+                      return prefix + this.formatAmount(Math.abs(value));
+                    }
                   },
-                  grid: { color: '#374151' }
+                  grid: {
+                    color: (context) => (context.tick.value === 0 ? '#6b7280' : '#374151')
+                  }
                 }
               },
               plugins: {
                 legend: {
-                  labels: { color: '#9ca3af' },
+                  labels: {
+                    color: '#9ca3af',
+                    generateLabels: (legendChart) => {
+                      const defaults = Chart.defaults.plugins.legend.labels.generateLabels(legendChart);
+                      return [
+                        {
+                          text: 'Netto positief (boven 0)',
+                          fillStyle: '#10b981',
+                          strokeStyle: '#10b981',
+                          lineWidth: 0
+                        },
+                        {
+                          text: 'Netto negatief (onder 0)',
+                          fillStyle: '#ef4444',
+                          strokeStyle: '#ef4444',
+                          lineWidth: 0
+                        },
+                        ...defaults.filter((item) => item.text === 'Trend netto')
+                      ];
+                    }
+                  },
                   position: 'top'
                 },
                 tooltip: {
@@ -1860,7 +1883,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     label: (context) => {
                       const label = context.dataset.label || '';
                       const value = context.parsed.y;
-                      return `${label}: €${this.formatAmount(value)}`;
+                      if (label === 'Trend netto') {
+                        const sign = value < 0 ? '−' : '';
+                        return `${label}: ${sign}€${this.formatAmount(Math.abs(value))}`;
+                      }
+                      const sign = value < 0 ? '−' : '+';
+                      return `${label}: ${sign}€${this.formatAmount(Math.abs(value))}`;
                     }
                   }
                 }
@@ -2334,6 +2362,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             color: category.color,
             incomeData: incomeData,
             expenseData: expenseData,
+            netData,
             netTrendLine,
             labels: months,
             totalIncome: totalIncome,
