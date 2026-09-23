@@ -28,6 +28,7 @@ migrate(
                 { name: "name", type: "text", required: true, max: 500 },
                 { name: "description", type: "text", required: false, max: 2000 },
                 { name: "amount", type: "number", required: true },
+                { name: "balance", type: "number", required: false },
                 { name: "account", type: "text", required: false, max: 255 },
                 { name: "category", type: "text", required: false, max: 255 },
             ],
