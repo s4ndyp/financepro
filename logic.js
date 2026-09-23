@@ -330,6 +330,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Time range filter
         selectedTimeRange: 'last_12_months',
+        /** Aantal jaren op Statistieken-pagina (1, 2 of 3) */
+        statisticsYears: 1,
         showTimeRangeFilter: false,
 
         // Dashboard data
@@ -673,6 +675,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         return new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
       },
 
+      /** Saldo aan het begin van de 1e dag van de maand (einde van de vorige kalenderdag). */
+      getOpeningBalanceDateForMonth(year, monthIndex) {
+        return new Date(year, monthIndex, 0, 23, 59, 59, 999);
+      },
+
       getAccountBalanceAtDate(sortedAscTransactions, endDate) {
         const endMs = endDate.getTime();
         let runningTotal = 0;
@@ -881,10 +888,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Render category charts when navigating to statistieken page
         if (page === 'statistieken') {
+          const loadForStats = this.transactionsLoadMode !== 'full'
+            ? this.loadTransactions('full')
+            : Promise.resolve();
+          loadForStats.then(() => {
+            this.$nextTick(() => {
+              setTimeout(() => {
+                this.renderCategoryCharts();
+              }, 100);
+            });
+          });
+        }
+      },
+
+      setStatisticsYears(years) {
+        const parsed = parseInt(years, 10);
+        if (![1, 2, 3].includes(parsed)) return;
+        this.statisticsYears = parsed;
+        if (this.currentPage === 'statistieken') {
           this.$nextTick(() => {
-            setTimeout(() => {
-              this.renderCategoryCharts();
-            }, 100);
+            setTimeout(() => this.renderCategoryCharts(), 100);
           });
         }
       },
@@ -2079,7 +2102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             month: date.getMonth(),
             year: date.getFullYear(),
             label: date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' }),
-            endDate: this.getEndOfMonth(date.getFullYear(), date.getMonth())
+            balanceDate: this.getOpeningBalanceDateForMonth(date.getFullYear(), date.getMonth())
           });
         }
 
@@ -2111,7 +2134,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const datasets = accounts.map((account, index) => ({
           label: account,
           data: months.map((month) =>
-            this.getAccountBalanceAtDate(transactionsByAccount[account], month.endDate)
+            this.getAccountBalanceAtDate(transactionsByAccount[account], month.balanceDate)
           ),
           borderColor: colors[index % colors.length],
           backgroundColor: colors[index % colors.length] + '20',
@@ -2210,6 +2233,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       getCategoryCharts() {
         const now = new Date();
         const charts = [];
+        const numMonths = Math.min(36, Math.max(12, (this.statisticsYears || 1) * 12));
 
         this.categories.forEach(category => {
           const categoryTransactions = this.transactions.filter(t => t.category === category.name);
@@ -2219,7 +2243,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const expenseData = [];
           const months = [];
 
-          for (let i = 11; i >= 0; i--) {
+          for (let i = numMonths - 1; i >= 0; i--) {
             const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
 
             const monthTransactions = categoryTransactions.filter(t => {
@@ -3362,7 +3386,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
         }
 
-        if (!confirm('Backup importeren? Bestaande transacties met dezelfde datum, bedrag, omschrijving en rekening worden overgeslagen.')) {
+        if (!confirm('Backup importeren? Bestaande transacties met dezelfde datum, bedrag, omschrijving, mijn rekening en Van/Naar worden overgeslagen.')) {
           return;
         }
 
@@ -4217,7 +4241,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           `Bestaande transacties bijwerken?\n\n` +
           `Alleen het veld "${fieldLabel}" wordt aangepast. ` +
           'Er worden geen nieuwe transacties aangemaakt. ' +
-          'Matching op datum, bedrag, omschrijving en rekening (zelfde als duplicate-detectie).'
+          'Matching op datum, bedrag, omschrijving, mijn rekening en Van/Naar (zelfde als duplicate-detectie).'
         )) {
           return;
         }
