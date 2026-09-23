@@ -153,6 +153,15 @@ const FINANCEPRO_BACKUP_FORMAT = 'financepro-backup';
 const FINANCEPRO_BACKUP_VERSION = 2;
 const TRANSACTIONS_TABLE_PAGE_SIZE = 100;
 
+/** Velden die via CSV bijwerk-modus op bestaande transacties gezet mogen worden */
+const CSV_UPDATABLE_FIELDS = [
+  { value: 'balance', label: 'Saldo', mappingKey: 'balance', type: 'number' },
+  { value: 'name', label: 'Naam', mappingKey: 'name', type: 'string' },
+  { value: 'description', label: 'Omschrijving', mappingKey: 'description', type: 'description' },
+  { value: 'account', label: 'Rekening', mappingKey: 'account', type: 'string' },
+  { value: 'category', label: 'Categorie', mappingKey: 'category', type: 'category' }
+];
+
 let db = null;
 let app = null;
 
@@ -297,6 +306,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         csvPreview: [],
         selectedCsvFile: null,
         csvColumns: [],
+        csvImportMode: 'create',
+        csvUpdateField: 'balance',
+        isProcessingCsvImport: false,
 
         // Backup export/import (categories + transactions)
         showBackupImportModal: false,
@@ -476,6 +488,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Category statistics for insights table
       categoryStatistics() {
         return this.getCategoryStatistics();
+      },
+
+      csvUpdatableFieldOptions() {
+        return CSV_UPDATABLE_FIELDS;
+      },
+
+      csvUpdateFieldDefinition() {
+        return CSV_UPDATABLE_FIELDS.find((field) => field.value === this.csvUpdateField)
+          || CSV_UPDATABLE_FIELDS[0];
+      },
+
+      csvImportPrimaryActionLabel() {
+        return this.csvImportMode === 'update' ? 'Bijwerken' : 'Importeren';
       },
 
       // Category charts for statistieken page
@@ -3410,6 +3435,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.csvPreview = [];
         this.selectedCsvFile = null;
         this.csvColumns = [];
+        this.csvImportMode = 'create';
+        this.csvUpdateField = 'balance';
+        this.isProcessingCsvImport = false;
         this.csvMapping = {
           date: '',
           name: '',
@@ -3539,8 +3567,271 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.csvPreview = [];
         this.selectedCsvFile = null;
         this.csvColumns = [];
+        this.isProcessingCsvImport = false;
       },
 
+      getCsvColumnIndices() {
+        const mapping = this.csvMapping;
+        return {
+          dateIndex: mapping.date !== '' ? parseInt(mapping.date, 10) : -1,
+          nameIndex: mapping.name !== '' ? parseInt(mapping.name, 10) : -1,
+          descriptionIndex: mapping.description !== '' ? parseInt(mapping.description, 10) : -1,
+          amountIndex: mapping.amount !== '' ? parseInt(mapping.amount, 10) : -1,
+          balanceIndex: mapping.balance !== '' ? parseInt(mapping.balance, 10) : -1,
+          accountIndex: mapping.account !== '' ? parseInt(mapping.account, 10) : -1,
+          categoryIndex: mapping.category !== '' ? parseInt(mapping.category, 10) : -1
+        };
+      },
+
+      async resolveCsvCategory(categoryStr, { createMissing }) {
+        if (!categoryStr || !categoryStr.trim()) {
+          return 'Not defined';
+        }
+
+        const trimmed = categoryStr.trim();
+        const existingCategory = this.categories.find(
+          (c) => c.name.toLowerCase() === trimmed.toLowerCase()
+        );
+        if (existingCategory) {
+          return existingCategory.name;
+        }
+
+        if (!createMissing) {
+          return null;
+        }
+
+        const newCategory = {
+          name: trimmed,
+          color: '#6b7280',
+          budget: 0
+        };
+        try {
+          await db.saveDocument('categories', newCategory);
+          this.categories.push(newCategory);
+          return newCategory.name;
+        } catch (error) {
+          console.warn('[FinancePro] Could not create category:', trimmed, error);
+          return null;
+        }
+      },
+
+      async parseCsvTransactionFromColumns(columns, indices, { createMissingCategories }) {
+        const {
+          dateIndex,
+          nameIndex,
+          descriptionIndex,
+          amountIndex,
+          balanceIndex,
+          accountIndex,
+          categoryIndex
+        } = indices;
+
+        const getCell = (index) => (index >= 0 && index < columns.length ? columns[index] : '');
+
+        const usedIndices = [
+          dateIndex,
+          nameIndex,
+          descriptionIndex,
+          amountIndex,
+          balanceIndex,
+          accountIndex,
+          categoryIndex
+        ].filter((idx) => idx !== -1);
+
+        const maxIndex = usedIndices.length > 0 ? Math.max(...usedIndices) : 0;
+        if (columns.length <= maxIndex) {
+          return { transaction: null, reason: 'invalid_columns' };
+        }
+
+        const dateStr = getCell(dateIndex);
+        const nameStr = getCell(nameIndex);
+        const description = getCell(descriptionIndex);
+        const amountStr = getCell(amountIndex);
+        const balanceStr = getCell(balanceIndex);
+        const accountStr = getCell(accountIndex);
+        const categoryStr = getCell(categoryIndex);
+
+        const date = parseCsvDate(dateStr);
+        if (!date) {
+          return { transaction: null, reason: 'invalid_date' };
+        }
+
+        const amount = parseCsvAmount(amountStr);
+        if (Number.isNaN(amount)) {
+          return { transaction: null, reason: 'invalid_amount' };
+        }
+
+        let finalDescription = '';
+        if (nameStr) finalDescription += nameStr;
+        if (description) finalDescription += (finalDescription ? ' - ' : '') + description;
+        if (!finalDescription) finalDescription = 'Geen omschrijving';
+
+        const nameValue = (nameStr && nameStr.trim())
+          ? nameStr.trim()
+          : finalDescription.slice(0, 500);
+
+        let finalCategory = 'Not defined';
+        if (categoryStr && categoryStr.trim()) {
+          const resolvedCategory = await this.resolveCsvCategory(categoryStr, {
+            createMissing: createMissingCategories
+          });
+          if (resolvedCategory == null) {
+            if (createMissingCategories) {
+              return { transaction: null, reason: 'unknown_category' };
+            }
+          } else {
+            finalCategory = resolvedCategory;
+          }
+        }
+
+        let balance = null;
+        if (balanceStr) {
+          const parsedBalance = parseCsvAmount(balanceStr);
+          balance = Number.isNaN(parsedBalance) ? null : parsedBalance;
+        }
+
+        return {
+          transaction: {
+            date,
+            name: nameValue,
+            description: finalDescription,
+            amount,
+            balance,
+            category: finalCategory,
+            account: accountStr || ''
+          },
+          reason: null
+        };
+      },
+
+      async parseCsvRows(csvText, { createMissingCategories }) {
+        const lines = csvText.split(/\r?\n/).filter((line) => line.trim());
+        const delimiter = this.csvMapping.delimiter;
+        const indices = this.getCsvColumnIndices();
+        const rows = [];
+        let skippedInvalid = 0;
+
+        if (indices.dateIndex === -1 || indices.amountIndex === -1) {
+          return { rows, skippedInvalid, missingRequiredMapping: true };
+        }
+
+        for (let i = 1; i < lines.length; i++) {
+          const columns = parseCsvRow(lines[i], delimiter);
+          const parsed = await this.parseCsvTransactionFromColumns(columns, indices, {
+            createMissingCategories
+          });
+
+          if (!parsed.transaction) {
+            skippedInvalid += 1;
+            continue;
+          }
+
+          rows.push(parsed.transaction);
+        }
+
+        return { rows, skippedInvalid, missingRequiredMapping: false };
+      },
+
+      async parseCsvData(csvText) {
+        const { rows, skippedInvalid, missingRequiredMapping } = await this.parseCsvRows(csvText, {
+          createMissingCategories: true
+        });
+
+        const transactions = [];
+        let duplicateCount = 0;
+
+        if (missingRequiredMapping) {
+          return { transactions, duplicateCount, skippedInvalid };
+        }
+
+        for (const row of rows) {
+          if (!this.isDuplicateTransaction(row)) {
+            transactions.push(row);
+          } else {
+            duplicateCount += 1;
+          }
+        }
+
+        return { transactions, duplicateCount, skippedInvalid };
+      },
+
+      findMatchingTransactions(parsedTransaction) {
+        return this.transactions.filter((existingTransaction) =>
+          existingTransaction.date === parsedTransaction.date &&
+          existingTransaction.amount === parsedTransaction.amount &&
+          existingTransaction.description === parsedTransaction.description &&
+          (existingTransaction.account || '') === (parsedTransaction.account || '')
+        );
+      },
+
+      isDuplicateTransaction(newTransaction) {
+        return this.findMatchingTransactions(newTransaction).length > 0;
+      },
+
+      getCsvUpdateValue(parsedTransaction, fieldDefinition) {
+        if (!fieldDefinition) return { value: undefined, skip: true, reason: 'missing_field' };
+
+        switch (fieldDefinition.type) {
+          case 'number': {
+            if (parsedTransaction.balance == null || Number.isNaN(parsedTransaction.balance)) {
+              return { value: undefined, skip: true, reason: 'empty_value' };
+            }
+            return { value: parsedTransaction.balance, skip: false };
+          }
+          case 'string': {
+            const key = fieldDefinition.value;
+            const raw = parsedTransaction[key];
+            if (raw == null || String(raw).trim() === '') {
+              return { value: undefined, skip: true, reason: 'empty_value' };
+            }
+            return { value: String(raw).trim(), skip: false };
+          }
+          case 'description': {
+            if (!parsedTransaction.description || !parsedTransaction.description.trim()) {
+              return { value: undefined, skip: true, reason: 'empty_value' };
+            }
+            return { value: parsedTransaction.description.trim(), skip: false };
+          }
+          case 'category': {
+            if (!parsedTransaction.category || parsedTransaction.category === 'Not defined') {
+              return { value: undefined, skip: true, reason: 'empty_value' };
+            }
+            return { value: parsedTransaction.category, skip: false };
+          }
+          default:
+            return { value: undefined, skip: true, reason: 'unsupported_field' };
+        }
+      },
+
+      validateCsvUpdateMapping() {
+        const fieldDefinition = this.csvUpdateFieldDefinition;
+        const mappingValue = this.csvMapping[fieldDefinition.mappingKey];
+        if (mappingValue === '') {
+          showToast(`Selecteer een CSV-kolom voor ${fieldDefinition.label}`, 'error');
+          return false;
+        }
+        if (this.csvMapping.date === '' || this.csvMapping.amount === '') {
+          showToast('Selecteer minimaal Datum en Bedrag om transacties te matchen', 'error');
+          return false;
+        }
+        return true;
+      },
+
+      async ensureNotDefinedCategory() {
+        const notDefinedCategory = this.categories.find((c) => c.name === 'Not defined');
+        if (notDefinedCategory) return;
+
+        try {
+          await db.saveDocument('categories', {
+            name: 'Not defined',
+            color: '#6b7280',
+            budget: 0
+          });
+          this.categories = await db.getCollection('categories') || [];
+        } catch (error) {
+          console.warn('[FinancePro] Could not create "Not defined" category:', error);
+        }
+      },
 
       async processCsvImport() {
         if (!this.selectedCsvFile) {
@@ -3548,28 +3839,19 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
         }
 
-        // Check if required columns are mapped
+        if (this.csvImportMode === 'update') {
+          await this.processCsvFieldUpdate();
+          return;
+        }
+
         if (this.csvMapping.date === '' || this.csvMapping.amount === '') {
           showToast('Selecteer minimaal de vereiste kolommen (Datum, Bedrag)', 'error');
           return;
         }
 
-        // Ensure "Not defined" category exists
-        const notDefinedCategory = this.categories.find(c => c.name === 'Not defined');
-        if (!notDefinedCategory) {
-          try {
-            await db.saveDocument('categories', {
-              name: 'Not defined',
-              color: '#6b7280',
-              budget: 0
-            });
-            // Refresh categories list
-            this.categories = await db.getCollection('categories') || [];
-          } catch (error) {
-            console.warn('[FinancePro] Could not create "Not defined" category:', error);
-          }
-        }
+        await this.ensureNotDefinedCategory();
 
+        this.isProcessingCsvImport = true;
         try {
           const csvText = await this.selectedCsvFile.text();
           if (this.transactionsLoadMode !== 'full') {
@@ -3595,12 +3877,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
 
           let importedCount = 0;
-          let duplicateCount = 0;
           let failedSaveCount = 0;
 
           for (const transaction of importedTransactions) {
             try {
-              // Apply rules before saving
               const processedTransaction = await this.applyRulesToTransaction(transaction);
               await db.saveDocument('transactions', processedTransaction);
               importedCount++;
@@ -3626,121 +3906,118 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (error) {
           console.error('Error processing CSV:', error);
           showToast('Fout bij verwerken CSV bestand', 'error');
+        } finally {
+          this.isProcessingCsvImport = false;
         }
       },
 
-      async parseCsvData(csvText) {
-        const lines = csvText.split(/\r?\n/).filter(line => line.trim());
-        const delimiter = this.csvMapping.delimiter;
-        const dateIndex = this.csvMapping.date !== '' ? parseInt(this.csvMapping.date, 10) : -1;
-        const nameIndex = this.csvMapping.name !== '' ? parseInt(this.csvMapping.name, 10) : -1;
-        const descriptionIndex = this.csvMapping.description !== '' ? parseInt(this.csvMapping.description, 10) : -1;
-        const amountIndex = this.csvMapping.amount !== '' ? parseInt(this.csvMapping.amount, 10) : -1;
-        const balanceIndex = this.csvMapping.balance !== '' ? parseInt(this.csvMapping.balance, 10) : -1;
-        const accountIndex = this.csvMapping.account !== '' ? parseInt(this.csvMapping.account, 10) : -1;
-        const categoryIndex = this.csvMapping.category !== '' ? parseInt(this.csvMapping.category, 10) : -1;
-
-        const transactions = [];
-        let duplicateCount = 0;
-        let skippedInvalid = 0;
-
-        if (dateIndex === -1 || amountIndex === -1) {
-          return { transactions, duplicateCount, skippedInvalid };
+      async processCsvFieldUpdate() {
+        if (!this.validateCsvUpdateMapping()) {
+          return;
         }
 
-        const getCell = (columns, index) => (index >= 0 && index < columns.length ? columns[index] : '');
+        const fieldDefinition = this.csvUpdateFieldDefinition;
+        const fieldLabel = fieldDefinition.label;
 
-        for (let i = 1; i < lines.length; i++) {
-          const columns = parseCsvRow(lines[i], delimiter);
+        if (!confirm(
+          `Bestaande transacties bijwerken?\n\n` +
+          `Alleen het veld "${fieldLabel}" wordt aangepast. ` +
+          'Er worden geen nieuwe transacties aangemaakt. ' +
+          'Matching op datum, bedrag, omschrijving en rekening (zelfde als duplicate-detectie).'
+        )) {
+          return;
+        }
 
-          const indices = [dateIndex, nameIndex, descriptionIndex, amountIndex, balanceIndex, accountIndex, categoryIndex].filter(idx => idx !== -1);
-          const maxIndex = indices.length > 0 ? Math.max(...indices) : 0;
-          if (columns.length <= maxIndex) {
-            skippedInvalid += 1;
-            continue;
+        this.isProcessingCsvImport = true;
+        try {
+          const csvText = await this.selectedCsvFile.text();
+          if (this.transactionsLoadMode !== 'full') {
+            await this.loadTransactions('full');
           }
 
-          const dateStr = getCell(columns, dateIndex);
-          const nameStr = getCell(columns, nameIndex);
-          const description = getCell(columns, descriptionIndex);
-          const amountStr = getCell(columns, amountIndex);
-          const balanceStr = getCell(columns, balanceIndex);
-          const accountStr = getCell(columns, accountIndex);
-          const categoryStr = getCell(columns, categoryIndex);
+          const parseResult = await this.parseCsvRows(csvText, {
+            createMissingCategories: fieldDefinition.type === 'category'
+          });
 
-          const date = parseCsvDate(dateStr);
-          if (!date) {
-            skippedInvalid += 1;
-            continue;
+          if (parseResult.missingRequiredMapping) {
+            showToast('Selecteer minimaal Datum en Bedrag om transacties te matchen', 'error');
+            return;
           }
 
-          const amount = parseCsvAmount(amountStr);
-          if (Number.isNaN(amount)) {
-            skippedInvalid += 1;
-            continue;
+          const { rows, skippedInvalid } = parseResult;
+          if (rows.length === 0) {
+            const skipHint = skippedInvalid > 0
+              ? ` (${skippedInvalid} regels overgeslagen)`
+              : '';
+            showToast(`Geen geldige CSV-regels gevonden.${skipHint}`, 'error');
+            return;
           }
 
-          let finalDescription = '';
-          if (nameStr) finalDescription += nameStr;
-          if (description) finalDescription += (finalDescription ? ' - ' : '') + description;
-          if (!finalDescription) finalDescription = 'Geen omschrijving';
+          let updatedCount = 0;
+          let noMatchCount = 0;
+          let emptyValueCount = 0;
+          let failedSaveCount = 0;
+          let multiMatchCount = 0;
 
-          const nameValue = (nameStr && nameStr.trim())
-            ? nameStr.trim()
-            : finalDescription.slice(0, 500);
+          for (const parsedRow of rows) {
+            const updatePayload = this.getCsvUpdateValue(parsedRow, fieldDefinition);
+            if (updatePayload.skip) {
+              if (updatePayload.reason === 'empty_value') {
+                emptyValueCount += 1;
+              }
+              continue;
+            }
 
-          let finalCategory = 'Not defined';
-          if (categoryStr) {
-            const existingCategory = this.categories.find(c =>
-              c.name.toLowerCase() === categoryStr.toLowerCase().trim()
-            );
-            if (existingCategory) {
-              finalCategory = existingCategory.name;
-            } else {
-              const newCategory = {
-                name: categoryStr.trim(),
-                color: '#6b7280',
-                budget: 0
-              };
+            const matches = this.findMatchingTransactions(parsedRow);
+            if (matches.length === 0) {
+              noMatchCount += 1;
+              continue;
+            }
+
+            if (matches.length > 1) {
+              multiMatchCount += 1;
+            }
+
+            for (const existing of matches) {
+              const nextValue = updatePayload.value;
+              const currentValue = existing[fieldDefinition.value];
+              if (fieldDefinition.type === 'number') {
+                if (currentValue != null && Number(currentValue) === Number(nextValue)) {
+                  continue;
+                }
+              } else if (String(currentValue ?? '') === String(nextValue ?? '')) {
+                continue;
+              }
+
               try {
-                await db.saveDocument('categories', newCategory);
-                this.categories.push(newCategory);
-                finalCategory = newCategory.name;
+                await db.saveDocument('transactions', {
+                  ...existing,
+                  [fieldDefinition.value]: nextValue
+                });
+                updatedCount += 1;
               } catch (error) {
-                console.warn('[FinancePro] Could not create category:', categoryStr, error);
+                failedSaveCount += 1;
+                console.warn('[FinancePro] CSV field update failed:', existing, error);
               }
             }
           }
 
-          const newTransaction = {
-            date,
-            name: nameValue,
-            description: finalDescription,
-            amount,
-            balance: balanceStr ? parseCsvAmount(balanceStr) : null,
-            category: finalCategory,
-            account: accountStr || ''
-          };
+          const parts = [`${updatedCount} veld(en) bijgewerkt (${fieldLabel})`];
+          if (noMatchCount > 0) parts.push(`${noMatchCount} zonder match`);
+          if (emptyValueCount > 0) parts.push(`${emptyValueCount} lege waarden overgeslagen`);
+          if (multiMatchCount > 0) parts.push(`${multiMatchCount} regels met meerdere matches`);
+          if (skippedInvalid > 0) parts.push(`${skippedInvalid} ongeldige regels overgeslagen`);
+          if (failedSaveCount > 0) parts.push(`${failedSaveCount} mislukt bij opslaan`);
 
-          if (!this.isDuplicateTransaction(newTransaction)) {
-            transactions.push(newTransaction);
-          } else {
-            duplicateCount += 1;
-          }
+          showToast(parts.join(', '), failedSaveCount > 0 ? 'error' : 'success');
+          this.closeCsvImportModal();
+          await this.refreshData({ loadAllTransactions: true });
+        } catch (error) {
+          console.error('Error processing CSV field update:', error);
+          showToast('Fout bij bijwerken vanuit CSV', 'error');
+        } finally {
+          this.isProcessingCsvImport = false;
         }
-
-        return { transactions, duplicateCount, skippedInvalid };
-      },
-
-      // Check if a transaction is a duplicate of an existing one
-      isDuplicateTransaction(newTransaction) {
-        return this.transactions.some(existingTransaction => {
-          // Compare key fields for duplication
-          return existingTransaction.date === newTransaction.date &&
-                 existingTransaction.amount === newTransaction.amount &&
-                 existingTransaction.description === newTransaction.description &&
-                 existingTransaction.account === newTransaction.account;
-        });
       },
 
       // ============================================================================
