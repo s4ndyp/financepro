@@ -325,8 +325,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         topSpendingCategories: [],
         /** Volledige transacties voor vaste kolommen in Categorie Statistieken (niet gekoppeld aan periodefilter) */
         insightsStatsTransactions: [],
+        /** Alle transacties voor saldo-grafiek (volledige historie, gesorteerd op datum) */
+        insightsBalanceTransactions: [],
+        isSavingCategoryBudgets: false,
+        categoryBudgetDrafts: {},
 
-        // Category budgets (stored in local storage)
+        // Category budgets (localStorage + sync naar categorieën in PocketBase)
         categoryBudgets: {},
 
         // Category charts instances
@@ -490,23 +494,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return groups.slice(Math.ceil(groups.length / 2));
       },
 
-      // Proxy for category budgets to ensure Vue reactivity
-      budgetProxy() {
-        return new Proxy(this.categoryBudgets, {
-          get: (target, prop) => {
-            return target[prop] || 0;
-          },
-          set: (target, prop, value) => {
-            const budget = parseFloat(value) || 0;
-            this.$set(target, prop, budget);
-
-            // Save to local storage
-            const savedBudgets = { ...target };
-            localStorage.setItem('financepro_category_budgets', JSON.stringify(savedBudgets));
-            return true;
-          }
-        });
-      }
     },
 
     beforeUnmount() {
@@ -612,6 +599,51 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
 
+      async loadInsightsBalanceTransactions() {
+        let options = { sort: 'date' };
+
+        try {
+          const { items } = await db.listRecords('transactions', options);
+          this.insightsBalanceTransactions = items;
+        } catch (error) {
+          if (options.sort === 'date') {
+            options.sort = 'id';
+            const { items } = await db.listRecords('transactions', options);
+            this.insightsBalanceTransactions = items;
+            return;
+          }
+          throw error;
+        }
+      },
+
+      normalizeAccountName(account) {
+        const trimmed = (account || '').trim();
+        return trimmed || 'Standaard rekening';
+      },
+
+      getEndOfMonth(year, monthIndex) {
+        return new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
+      },
+
+      getAccountBalanceAtDate(sortedAscTransactions, endDate) {
+        const endMs = endDate.getTime();
+        let runningTotal = 0;
+        let lastKnownBalance = null;
+
+        for (const transaction of sortedAscTransactions) {
+          const transactionDate = new Date(transaction.date);
+          if (Number.isNaN(transactionDate.getTime())) continue;
+          if (transactionDate.getTime() > endMs) break;
+
+          runningTotal += Number(transaction.amount) || 0;
+          if (transaction.balance != null && transaction.balance !== '' && !Number.isNaN(Number(transaction.balance))) {
+            lastKnownBalance = Number(transaction.balance);
+          }
+        }
+
+        return lastKnownBalance !== null ? lastKnownBalance : runningTotal;
+      },
+
       hasActiveTransactionFilters() {
         const filters = this.transactionFilters;
         return Boolean(
@@ -690,7 +722,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           await this.loadTransactions(mode);
 
           if (this.currentPage === 'insights') {
-            await this.loadInsightsStatsTransactions();
+            await Promise.all([
+              this.loadInsightsStatsTransactions(),
+              this.loadInsightsBalanceTransactions()
+            ]);
           }
 
           this.updateCategoryStats();
@@ -757,23 +792,23 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? this.loadTransactions('analytics')
             : Promise.resolve();
 
-          loadAnalytics.then(() => {
-            this.updateCategoryStats();
-            this.updateDashboardData();
-            if (page === 'insights') this.updateInsightsData();
-          });
-
           if (page === 'insights') {
-            this.loadInsightsStatsTransactions().then(() => {
-              this.$forceUpdate();
+            Promise.all([
+              loadAnalytics,
+              this.loadInsightsStatsTransactions(),
+              this.loadInsightsBalanceTransactions()
+            ]).then(() => {
+              this.updateCategoryStats();
+              this.updateDashboardData();
+              this.syncCategoryBudgetDrafts();
+              this.updateInsightsData();
+            });
+          } else {
+            loadAnalytics.then(() => {
+              this.updateCategoryStats();
+              this.updateDashboardData();
             });
           }
-        }
-
-        // Update insights data when navigating to insights page
-        if (page === 'insights') {
-          console.log('Updating insights data...');
-          this.updateInsightsData();
         }
 
         // Render dashboard chart when navigating to dashboard page
@@ -1961,7 +1996,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       getAccountBalanceData() {
         const now = new Date();
-        const timeRangeFilter = this.getTimeRangeFilter();
 
         // Check if we should show daily data (for this_month and last_month)
         const showDailyData = this.selectedTimeRange === 'this_month' || this.selectedTimeRange === 'last_month';
@@ -1991,70 +2025,52 @@ document.addEventListener('DOMContentLoaded', async () => {
           months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
-            label: date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' })
+            label: date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' }),
+            endDate: this.getEndOfMonth(date.getFullYear(), date.getMonth())
           });
         }
 
-        // Filter transactions by account if selected, but for balances we show all accounts
-        const filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+        const sourceTransactions = this.insightsBalanceTransactions.length
+          ? this.insightsBalanceTransactions
           : this.transactions;
 
-        // Group transactions by account
-        const accountData = {};
-        const accounts = [...new Set(filteredTransactions.map(t => t.account).filter(account => account && account.trim()))].sort();
+        let filteredTransactions = sourceTransactions;
+        if (this.selectedAccount) {
+          filteredTransactions = sourceTransactions.filter(
+            (t) => this.normalizeAccountName(t.account) === this.normalizeAccountName(this.selectedAccount)
+          );
+        }
 
-        // Initialize data structure for each account
-        accounts.forEach(account => {
-          accountData[account] = {};
-          months.forEach(month => {
-            accountData[account][month.label] = null; // null means no data for that month
-          });
+        const accounts = [...new Set(filteredTransactions.map((t) => this.normalizeAccountName(t.account)))].sort();
+
+        const transactionsByAccount = {};
+        accounts.forEach((account) => {
+          transactionsByAccount[account] = filteredTransactions
+            .filter((t) => this.normalizeAccountName(t.account) === account)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
         });
 
-        // Fill in balance data for each account and month
-        // For each account and each month, find the last transaction in that month
-        accounts.forEach(account => {
-          months.forEach(month => {
-            // Find all transactions for this account in this month
-            const monthTransactions = filteredTransactions
-              .filter(t =>
-                t.account === account &&
-                t.balance !== null &&
-                t.balance !== undefined &&
-                new Date(t.date).getMonth() === month.month &&
-                new Date(t.date).getFullYear() === month.year
-              )
-              .sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort by date descending (newest first)
+        const colors = [
+          '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
+          '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6b7280'
+        ];
 
-            // Use the balance from the last transaction in this month
-            if (monthTransactions.length > 0) {
-              accountData[account][month.label] = monthTransactions[0].balance;
-            }
-          });
-        });
-
-        // Create datasets for Chart.js
-        const datasets = accounts.map((account, index) => {
-          const colors = [
-            '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
-            '#06b6d4', '#f97316', '#84cc16', '#ec4899', '#6b7280'
-          ];
-
-          return {
-            label: account,
-            data: months.map(month => accountData[account][month.label]),
-            borderColor: colors[index % colors.length],
-            backgroundColor: colors[index % colors.length] + '20',
-            tension: 0.1,
-            fill: false,
-            spanGaps: true // Connect points even with null values
-          };
-        });
+        const datasets = accounts.map((account, index) => ({
+          label: account,
+          data: months.map((month) =>
+            this.getAccountBalanceAtDate(transactionsByAccount[account], month.endDate)
+          ),
+          borderColor: colors[index % colors.length],
+          backgroundColor: colors[index % colors.length] + '20',
+          tension: 0.1,
+          fill: false,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        }));
 
         return {
-          labels: months.map(m => m.label),
-          datasets: datasets
+          labels: months.map((m) => m.label),
+          datasets
         };
       },
 
@@ -2215,9 +2231,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // Filter transactions by account if selected, but for balances we show all accounts
-        let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+        const sourceTransactions = this.insightsBalanceTransactions.length
+          ? this.insightsBalanceTransactions
           : this.transactions;
+
+        let filteredTransactions = this.selectedAccount
+          ? sourceTransactions.filter(
+            (t) => this.normalizeAccountName(t.account) === this.normalizeAccountName(this.selectedAccount)
+          )
+          : sourceTransactions;
 
         // Apply time range filter
         filteredTransactions = filteredTransactions.filter(t => {
@@ -2225,32 +2247,25 @@ document.addEventListener('DOMContentLoaded', async () => {
           return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
         });
 
-        // Group transactions by account
-        const accountData = {};
-        const accounts = [...new Set(filteredTransactions.map(t => t.account).filter(account => account && account.trim()))].sort();
+        const accounts = [...new Set(filteredTransactions.map((t) => this.normalizeAccountName(t.account)))].sort();
 
-        // Initialize data structure for each account
-        accounts.forEach(account => {
-          accountData[account] = {};
-          days.forEach(day => {
-            accountData[account][day.fullDate] = null; // null means no data for that day
-          });
+        const transactionsByAccount = {};
+        accounts.forEach((account) => {
+          transactionsByAccount[account] = filteredTransactions
+            .filter((t) => this.normalizeAccountName(t.account) === account)
+            .sort((a, b) => new Date(a.date) - new Date(b.date));
         });
 
-        // Fill in balance data for each account and day
-        // Sort transactions by date to get the balance progression
-        const sortedTransactions = filteredTransactions
-          .filter(t => t.balance !== null && t.balance !== undefined)
-          .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        sortedTransactions.forEach(transaction => {
-          if (transaction.account && accounts.includes(transaction.account)) {
-            const transactionDate = new Date(transaction.date).toISOString().split('T')[0];
-            // Store the balance for this day (will be overwritten by later transactions on the same day)
-            if (accountData[transaction.account][transactionDate] !== undefined) {
-              accountData[transaction.account][transactionDate] = transaction.balance;
-            }
-          }
+        const accountData = {};
+        accounts.forEach((account) => {
+          accountData[account] = {};
+          days.forEach((day) => {
+            const dayEnd = new Date(day.year, day.month, day.date, 23, 59, 59, 999);
+            accountData[account][day.fullDate] = this.getAccountBalanceAtDate(
+              transactionsByAccount[account],
+              dayEnd
+            );
+          });
         });
 
         // Create datasets for Chart.js
@@ -2629,23 +2644,81 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
 
       getCategoryBudget(categoryName) {
+        if (Object.prototype.hasOwnProperty.call(this.categoryBudgetDrafts, categoryName)) {
+          return this.categoryBudgetDrafts[categoryName];
+        }
         return this.categoryBudgets[categoryName] || 0;
+      },
+
+      syncCategoryBudgetDrafts() {
+        const drafts = {};
+        for (const category of this.categories) {
+          drafts[category.name] = this.getCategoryBudget(category.name);
+        }
+        this.categoryBudgetDrafts = drafts;
+      },
+
+      setCategoryBudgetDraft(categoryName, budgetValue) {
+        const parsed = parseFloat(budgetValue);
+        this.categoryBudgetDrafts = {
+          ...this.categoryBudgetDrafts,
+          [categoryName]: Number.isNaN(parsed) ? 0 : parsed
+        };
       },
 
       updateCategoryBudget(categoryName, budgetValue) {
         const budget = parseFloat(budgetValue) || 0;
-
-        // Update reactive data
-        this.$set(this.categoryBudgets, categoryName, budget);
-
-        // Save to local storage
-        const savedBudgets = { ...this.categoryBudgets };
-        localStorage.setItem('financepro_category_budgets', JSON.stringify(savedBudgets));
+        this.categoryBudgets = {
+          ...this.categoryBudgets,
+          [categoryName]: budget
+        };
+        localStorage.setItem('financepro_category_budgets', JSON.stringify(this.categoryBudgets));
       },
 
       loadCategoryBudgets() {
         const savedBudgets = JSON.parse(localStorage.getItem('financepro_category_budgets') || '{}');
-        this.categoryBudgets = { ...savedBudgets };
+        const merged = { ...savedBudgets };
+
+        for (const category of this.categories) {
+          const serverBudget = category.budget != null ? Number(category.budget) : 0;
+          if (!Number.isNaN(serverBudget) && serverBudget > 0 && merged[category.name] == null) {
+            merged[category.name] = serverBudget;
+          }
+        }
+
+        this.categoryBudgets = merged;
+        this.syncCategoryBudgetDrafts();
+      },
+
+      async saveCategoryBudgets() {
+        if (this.isSavingCategoryBudgets) return;
+
+        this.isSavingCategoryBudgets = true;
+        try {
+          for (const category of this.categories) {
+            const rawBudget = Object.prototype.hasOwnProperty.call(this.categoryBudgetDrafts, category.name)
+              ? this.categoryBudgetDrafts[category.name]
+              : (this.categoryBudgets[category.name] || 0);
+            const budget = parseFloat(rawBudget) || 0;
+            this.updateCategoryBudget(category.name, budget);
+
+            const currentBudget = category.budget != null ? Number(category.budget) : 0;
+            if (currentBudget === budget) continue;
+
+            await db.saveDocument('categories', {
+              ...category,
+              budget
+            });
+          }
+
+          this.syncCategoryBudgetDrafts();
+          showToast('Budgetten opgeslagen', 'success');
+        } catch (error) {
+          console.error('Error saving category budgets:', error);
+          showToast('Fout bij opslaan budgetten', 'error');
+        } finally {
+          this.isSavingCategoryBudgets = false;
+        }
       },
 
       getAmountColor(amount, budget) {
@@ -3068,6 +3141,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         this.categoryBudgets = merged;
         localStorage.setItem('financepro_category_budgets', JSON.stringify(merged));
+        this.syncCategoryBudgetDrafts();
         return count;
       },
 
