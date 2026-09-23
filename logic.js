@@ -300,6 +300,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         transactionsLoadMode: 'recent',
         isLoadingTransactions: false,
         transactionTablePage: 1,
+        transactionsTablePageSize: TRANSACTIONS_TABLE_PAGE_SIZE,
         transactionFilterDebounce: null,
 
         // CSV Import
@@ -682,6 +683,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
       },
 
+      hasActiveTransactionTableViewFilters() {
+        return Boolean(this.selectedAccount || this.hasActiveTransactionFilters());
+      },
+
       analyticsPages() {
         return ['dashboard', 'insights', 'statistieken', 'details'];
       },
@@ -812,7 +817,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (this.transactionsLoadMode !== 'full') {
               this.loadTransactions('full');
             }
-          } else if (this.transactionsLoadMode !== 'recent') {
+          } else if (this.transactionsLoadMode === 'analytics') {
+            // Terug van analytics: herlaad compacte set, behoud 'full' na import/check
             this.loadTransactions('recent');
           }
         } else if (this.analyticsPages().includes(page)) {
@@ -3778,6 +3784,119 @@ document.addEventListener('DOMContentLoaded', async () => {
           (existingTransaction.account || '') === (parsedTransaction.account || '');
       },
 
+      isTransactionVisibleInTableFilters(transaction) {
+        if (!transaction) return false;
+
+        if (this.transactionFilters.search) {
+          const search = this.transactionFilters.search.toLowerCase();
+          const haystack = `${transaction.description || ''} ${transaction.category || ''}`.toLowerCase();
+          if (!haystack.includes(search)) {
+            return false;
+          }
+        }
+
+        if (this.transactionFilters.category && transaction.category !== this.transactionFilters.category) {
+          return false;
+        }
+
+        if (this.transactionFilters.type) {
+          if (this.transactionFilters.type === 'income' && transaction.amount < 0) return false;
+          if (this.transactionFilters.type === 'expense' && transaction.amount >= 0) return false;
+        }
+
+        if (this.transactionFilters.period) {
+          const now = new Date();
+          let startDate;
+          switch (this.transactionFilters.period) {
+            case 'this_month':
+              startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+              break;
+            case 'last_month':
+              startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+              break;
+            case 'this_year':
+              startDate = new Date(now.getFullYear(), 0, 1);
+              break;
+            case 'last_year':
+              startDate = new Date(now.getFullYear() - 1, 0, 1);
+              break;
+            default:
+              startDate = null;
+          }
+          if (startDate && new Date(transaction.date) < startDate) {
+            return false;
+          }
+        }
+
+        if (this.selectedAccount && (transaction.account || '') !== this.selectedAccount) {
+          return false;
+        }
+
+        return true;
+      },
+
+      getTransactionTableVisibilityIssue(transaction) {
+        if (!transaction) return null;
+        if (this.selectedAccount && (transaction.account || '') !== this.selectedAccount) {
+          return 'rekeningfilter';
+        }
+        if (this.transactionFilters.search) {
+          const search = this.transactionFilters.search.toLowerCase();
+          const haystack = `${transaction.description || ''} ${transaction.category || ''}`.toLowerCase();
+          if (!haystack.includes(search)) return 'zoekfilter';
+        }
+        if (this.transactionFilters.category && transaction.category !== this.transactionFilters.category) {
+          return 'categoriefilter';
+        }
+        if (this.transactionFilters.type) {
+          if (this.transactionFilters.type === 'income' && transaction.amount < 0) return 'typefilter';
+          if (this.transactionFilters.type === 'expense' && transaction.amount >= 0) return 'typefilter';
+        }
+        if (this.transactionFilters.period) {
+          const now = new Date();
+          let startDate;
+          switch (this.transactionFilters.period) {
+            case 'this_month':
+              startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+              break;
+            case 'last_month':
+              startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+              break;
+            case 'this_year':
+              startDate = new Date(now.getFullYear(), 0, 1);
+              break;
+            case 'last_year':
+              startDate = new Date(now.getFullYear() - 1, 0, 1);
+              break;
+            default:
+              startDate = null;
+          }
+          if (startDate && new Date(transaction.date) < startDate) return 'periodefilter';
+        }
+        return null;
+      },
+
+      clearTransactionTableFilters() {
+        this.selectedAccount = '';
+        this.showAccountFilter = false;
+        this.transactionFilters = {
+          search: '',
+          category: '',
+          type: '',
+          period: ''
+        };
+        this.transactionTablePage = 1;
+      },
+
+      async showAllTransactionsInTable() {
+        this.clearTransactionTableFilters();
+        if (this.transactionsLoadMode !== 'full' || this.transactions.length < this.totalTransactionCount) {
+          await this.loadTransactions('full');
+        }
+        this.currentPage = 'transactions';
+        showToast(`${this.transactions.length} transacties zichtbaar in tabel`, 'success');
+      },
+
       isDuplicateTransaction(newTransaction) {
         return this.findMatchingTransactions(newTransaction).length > 0;
       },
@@ -3963,7 +4082,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
 
           const missingRows = [];
+          const hiddenInTableRows = [];
           let matchedCount = 0;
+          let visibleInTableCount = 0;
           let csvDuplicateMatchCount = 0;
 
           for (let i = 1; i < lines.length; i++) {
@@ -3982,6 +4103,20 @@ document.addEventListener('DOMContentLoaded', async () => {
               if (matches.length > 1) {
                 csvDuplicateMatchCount += 1;
               }
+
+              const dbTransaction = matches[0];
+              if (this.isTransactionVisibleInTableFilters(dbTransaction)) {
+                visibleInTableCount += 1;
+              } else {
+                hiddenInTableRows.push({
+                  csvLine: i + 1,
+                  date: parsed.transaction.date,
+                  amount: parsed.transaction.amount,
+                  description: parsed.transaction.description,
+                  account: dbTransaction.account || '',
+                  reason: this.getTransactionTableVisibilityIssue(dbTransaction) || 'filter'
+                });
+              }
               continue;
             }
 
@@ -3998,6 +4133,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           const validRows = parseResult.rows.length;
           const missingCount = missingRows.length;
+          const hiddenInTableCount = hiddenInTableRows.length;
+          const transactionsLoaded = this.transactions.length;
+          const notLoadedCount = Math.max(0, this.totalTransactionCount - transactionsLoaded);
 
           this.csvCheckResult = {
             fileName: this.selectedCsvFile.name,
@@ -4005,19 +4143,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             validRows,
             matchedCount,
             missingCount,
+            visibleInTableCount,
+            hiddenInTableCount,
             skippedInvalid: parseResult.skippedInvalid,
             csvDuplicateMatchCount,
-            missingRows
+            transactionsLoaded,
+            totalTransactionCount: this.totalTransactionCount,
+            selectedAccount: this.selectedAccount || '',
+            missingRows,
+            hiddenInTableRows
           };
 
           const parts = [
-            `${matchedCount} van ${validRows} CSV-regels staan in de database`,
-            `${missingCount} ontbreken`
+            `${matchedCount} van ${validRows} in database`,
+            `${visibleInTableCount} zichtbaar in transactietabel`
           ];
+          if (missingCount > 0) parts.push(`${missingCount} ontbreken`);
+          if (hiddenInTableCount > 0) parts.push(`${hiddenInTableCount} verborgen door filters`);
+          if (notLoadedCount > 0) parts.push(`${notLoadedCount} niet geladen in geheugen`);
           if (parseResult.skippedInvalid > 0) {
             parts.push(`${parseResult.skippedInvalid} ongeldige regels overgeslagen`);
           }
-          showToast(parts.join(', '), missingCount > 0 ? 'error' : 'success');
+          showToast(parts.join(', '), (missingCount > 0 || hiddenInTableCount > 0) ? 'error' : 'success');
         } catch (error) {
           console.error('Error checking CSV import:', error);
           showToast('Fout bij controleren CSV bestand', 'error');
