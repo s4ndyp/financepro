@@ -309,6 +309,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         csvImportMode: 'create',
         csvUpdateField: 'balance',
         isProcessingCsvImport: false,
+        csvCheckResult: null,
 
         // Backup export/import (categories + transactions)
         showBackupImportModal: false,
@@ -500,7 +501,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
 
       csvImportPrimaryActionLabel() {
-        return this.csvImportMode === 'update' ? 'Bijwerken' : 'Importeren';
+        if (this.csvImportMode === 'update') return 'Bijwerken';
+        if (this.csvImportMode === 'check') return 'Controleren';
+        return 'Importeren';
       },
 
       // Category charts for statistieken page
@@ -3431,13 +3434,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       // CSV IMPORT
       // ============================================================================
 
-      openCsvImportModal() {
+      openCsvImportModal(mode = 'create') {
         this.csvPreview = [];
         this.selectedCsvFile = null;
         this.csvColumns = [];
-        this.csvImportMode = 'create';
+        this.csvImportMode = mode;
         this.csvUpdateField = 'balance';
         this.isProcessingCsvImport = false;
+        this.csvCheckResult = null;
         this.csvMapping = {
           date: '',
           name: '',
@@ -3529,6 +3533,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const file = event.target.files[0];
         if (file) {
           this.selectedCsvFile = file;
+          this.csvCheckResult = null;
           this.parseCsvPreviewFromFile(file);
         }
       },
@@ -3562,12 +3567,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
 
+      openCsvImportCheckModal() {
+        this.openCsvImportModal('check');
+      },
+
       closeCsvImportModal() {
         this.showCsvImportModal = false;
         this.csvPreview = [];
         this.selectedCsvFile = null;
         this.csvColumns = [];
         this.isProcessingCsvImport = false;
+        this.csvCheckResult = null;
       },
 
       getCsvColumnIndices() {
@@ -3757,15 +3767,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       findMatchingTransactions(parsedTransaction) {
         return this.transactions.filter((existingTransaction) =>
-          existingTransaction.date === parsedTransaction.date &&
+          this.transactionsMatch(existingTransaction, parsedTransaction)
+        );
+      },
+
+      transactionsMatch(existingTransaction, parsedTransaction) {
+        return existingTransaction.date === parsedTransaction.date &&
           existingTransaction.amount === parsedTransaction.amount &&
           existingTransaction.description === parsedTransaction.description &&
-          (existingTransaction.account || '') === (parsedTransaction.account || '')
-        );
+          (existingTransaction.account || '') === (parsedTransaction.account || '');
       },
 
       isDuplicateTransaction(newTransaction) {
         return this.findMatchingTransactions(newTransaction).length > 0;
+      },
+
+      onCsvImportModeChange() {
+        this.csvCheckResult = null;
       },
 
       getCsvUpdateValue(parsedTransaction, fieldDefinition) {
@@ -3839,6 +3857,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
         }
 
+        if (this.csvImportMode === 'check') {
+          await this.processCsvImportCheck();
+          return;
+        }
+
         if (this.csvImportMode === 'update') {
           await this.processCsvFieldUpdate();
           return;
@@ -3906,6 +3929,98 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (error) {
           console.error('Error processing CSV:', error);
           showToast('Fout bij verwerken CSV bestand', 'error');
+        } finally {
+          this.isProcessingCsvImport = false;
+        }
+      },
+
+      async processCsvImportCheck() {
+        if (this.csvMapping.date === '' || this.csvMapping.amount === '') {
+          showToast('Selecteer minimaal Datum en Bedrag voor de controle', 'error');
+          return;
+        }
+
+        this.isProcessingCsvImport = true;
+        this.csvCheckResult = null;
+
+        try {
+          const csvText = await this.selectedCsvFile.text();
+          if (this.transactionsLoadMode !== 'full') {
+            await this.loadTransactions('full');
+          }
+
+          const lines = csvText.split(/\r?\n/).filter((line) => line.trim());
+          const delimiter = this.csvMapping.delimiter;
+          const indices = this.getCsvColumnIndices();
+
+          const parseResult = await this.parseCsvRows(csvText, {
+            createMissingCategories: false
+          });
+
+          if (parseResult.missingRequiredMapping) {
+            showToast('Selecteer minimaal Datum en Bedrag voor de controle', 'error');
+            return;
+          }
+
+          const missingRows = [];
+          let matchedCount = 0;
+          let csvDuplicateMatchCount = 0;
+
+          for (let i = 1; i < lines.length; i++) {
+            const columns = parseCsvRow(lines[i], delimiter);
+            const parsed = await this.parseCsvTransactionFromColumns(columns, indices, {
+              createMissingCategories: false
+            });
+
+            if (!parsed.transaction) {
+              continue;
+            }
+
+            const matches = this.findMatchingTransactions(parsed.transaction);
+            if (matches.length > 0) {
+              matchedCount += 1;
+              if (matches.length > 1) {
+                csvDuplicateMatchCount += 1;
+              }
+              continue;
+            }
+
+            missingRows.push({
+              csvLine: i + 1,
+              date: parsed.transaction.date,
+              amount: parsed.transaction.amount,
+              description: parsed.transaction.description,
+              account: parsed.transaction.account || '',
+              balance: parsed.transaction.balance,
+              category: parsed.transaction.category
+            });
+          }
+
+          const validRows = parseResult.rows.length;
+          const missingCount = missingRows.length;
+
+          this.csvCheckResult = {
+            fileName: this.selectedCsvFile.name,
+            totalCsvLines: Math.max(0, lines.length - 1),
+            validRows,
+            matchedCount,
+            missingCount,
+            skippedInvalid: parseResult.skippedInvalid,
+            csvDuplicateMatchCount,
+            missingRows
+          };
+
+          const parts = [
+            `${matchedCount} van ${validRows} CSV-regels staan in de database`,
+            `${missingCount} ontbreken`
+          ];
+          if (parseResult.skippedInvalid > 0) {
+            parts.push(`${parseResult.skippedInvalid} ongeldige regels overgeslagen`);
+          }
+          showToast(parts.join(', '), missingCount > 0 ? 'error' : 'success');
+        } catch (error) {
+          console.error('Error checking CSV import:', error);
+          showToast('Fout bij controleren CSV bestand', 'error');
         } finally {
           this.isProcessingCsvImport = false;
         }
