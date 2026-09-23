@@ -150,7 +150,7 @@ const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
 const API_URL = ''; // Zelfde origin; PocketBase serveert static + /api
 const TRANSACTIONS_DEFAULT_LIMIT = 500;
 const FINANCEPRO_BACKUP_FORMAT = 'financepro-backup';
-const FINANCEPRO_BACKUP_VERSION = 2;
+const FINANCEPRO_BACKUP_VERSION = 3;
 const TRANSACTIONS_TABLE_PAGE_SIZE = 100;
 
 /** Velden die via CSV bijwerk-modus op bestaande transacties gezet mogen worden */
@@ -235,6 +235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: '',
           description: '',
           amount: '',
+          ownAccount: '',
           account: '',
           category: ''
         },
@@ -266,6 +267,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           description: '',
           amount: '',
           balance: '',
+          ownAccount: '',
           account: '',
           category: '',
           delimiter: ','
@@ -276,6 +278,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           date: true,
           name: true,
           description: true,
+          ownAccount: false,
           account: true,
           category: true,
           amount: true,
@@ -300,6 +303,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         transactionsLoadMode: 'recent',
         isLoadingTransactions: false,
         transactionTablePage: 1,
+        transactionsTablePageSize: TRANSACTIONS_TABLE_PAGE_SIZE,
         transactionFilterDebounce: null,
 
         // CSV Import
@@ -407,9 +411,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         }
 
-        // Account filter
+        // Account filter (mijn rekening / own_account)
         if (this.selectedAccount) {
-          filtered = filtered.filter(t => t.account === this.selectedAccount);
+          filtered = filtered.filter(t => (t.own_account || '') === this.selectedAccount);
         }
 
         // Sort by date (newest first)
@@ -465,7 +469,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Available accounts for filtering
       availableAccounts() {
-        const accounts = [...new Set(this.transactions.map(t => t.account).filter(account => account && account.trim()))];
+        const accounts = [...new Set(
+          this.transactions.map(t => (t.own_account || '').trim()).filter(Boolean)
+        )];
         return accounts.sort();
       },
 
@@ -644,6 +650,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
 
+      trimCsvAccount(value) {
+        if (value == null) return '';
+        return String(value).trim();
+      },
+
+      getTransactionOwnAccount(transaction) {
+        return this.trimCsvAccount(transaction?.own_account);
+      },
+
+      getChartAccountKey(transaction) {
+        const ownAccount = this.getTransactionOwnAccount(transaction);
+        return ownAccount || 'Geen mijn rekening';
+      },
+
       normalizeAccountName(account) {
         const trimmed = (account || '').trim();
         return trimmed || 'Standaard rekening';
@@ -680,6 +700,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           filters.type ||
           filters.period
         );
+      },
+
+      hasActiveTransactionTableViewFilters() {
+        return Boolean(this.selectedAccount || this.hasActiveTransactionFilters());
       },
 
       analyticsPages() {
@@ -812,7 +836,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (this.transactionsLoadMode !== 'full') {
               this.loadTransactions('full');
             }
-          } else if (this.transactionsLoadMode !== 'recent') {
+          } else if (this.transactionsLoadMode === 'analytics') {
+            // Terug van analytics: herlaad compacte set, behoud 'full' na import/check
             this.loadTransactions('recent');
           }
         } else if (this.analyticsPages().includes(page)) {
@@ -1087,7 +1112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1167,7 +1192,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1252,7 +1277,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1362,7 +1387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1862,7 +1887,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected and by time range
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1935,7 +1960,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1990,7 +2015,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       getCategoryPieData() {
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -2065,16 +2090,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         let filteredTransactions = sourceTransactions;
         if (this.selectedAccount) {
           filteredTransactions = sourceTransactions.filter(
-            (t) => this.normalizeAccountName(t.account) === this.normalizeAccountName(this.selectedAccount)
+            (t) => (t.own_account || '') === this.selectedAccount
           );
         }
 
-        const accounts = [...new Set(filteredTransactions.map((t) => this.normalizeAccountName(t.account)))].sort();
+        const accounts = [...new Set(filteredTransactions.map((t) => this.getChartAccountKey(t)))].sort();
 
         const transactionsByAccount = {};
         accounts.forEach((account) => {
           transactionsByAccount[account] = filteredTransactions
-            .filter((t) => this.normalizeAccountName(t.account) === account)
+            .filter((t) => this.getChartAccountKey(t) === account)
             .sort((a, b) => new Date(a.date) - new Date(b.date));
         });
 
@@ -2118,7 +2143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? transactionSource.filter(t => t.account === this.selectedAccount)
+          ? transactionSource.filter(t => (t.own_account || '') === this.selectedAccount)
           : transactionSource;
 
         const statistics = {};
@@ -2265,7 +2290,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         let filteredTransactions = this.selectedAccount
           ? sourceTransactions.filter(
-            (t) => this.normalizeAccountName(t.account) === this.normalizeAccountName(this.selectedAccount)
+            (t) => (t.own_account || '') === this.selectedAccount
           )
           : sourceTransactions;
 
@@ -2275,12 +2300,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
         });
 
-        const accounts = [...new Set(filteredTransactions.map((t) => this.normalizeAccountName(t.account)))].sort();
+        const accounts = [...new Set(filteredTransactions.map((t) => this.getChartAccountKey(t)))].sort();
 
         const transactionsByAccount = {};
         accounts.forEach((account) => {
           transactionsByAccount[account] = filteredTransactions
-            .filter((t) => this.normalizeAccountName(t.account) === account)
+            .filter((t) => this.getChartAccountKey(t) === account)
             .sort((a, b) => new Date(a.date) - new Date(b.date));
         });
 
@@ -2363,7 +2388,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // For the income/expense chart, we don't apply additional time filtering
@@ -2427,6 +2452,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: '',
           description: '',
           amount: '',
+          ownAccount: '',
           account: '',
           category: this.categories.length > 0 ? this.categories[0].name : ''
         };
@@ -2440,6 +2466,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: transaction.name || '',
           description: transaction.description,
           amount: transaction.amount.toString(),
+          ownAccount: transaction.own_account || '',
           account: transaction.account || '',
           category: transaction.category
         };
@@ -2454,6 +2481,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: '',
           description: '',
           amount: '',
+          ownAccount: '',
           account: '',
           category: ''
         };
@@ -2482,7 +2510,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             name: this.transactionForm.name.trim(),
             description: this.transactionForm.description.trim(),
             amount: parseFloat(this.transactionForm.amount),
-            account: this.transactionForm.account.trim(),
+            own_account: this.trimCsvAccount(this.transactionForm.ownAccount),
+            account: this.trimCsvAccount(this.transactionForm.account),
             category: this.transactionForm.category
           };
 
@@ -3187,6 +3216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: transaction.name || '',
           description: transaction.description || '',
           amount: Number(transaction.amount),
+          own_account: transaction.own_account || '',
           account: transaction.account || '',
           category: transaction.category || ''
         };
@@ -3294,7 +3324,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: name.slice(0, 500),
           description: description.slice(0, 2000),
           amount: Number(raw.amount),
-          account: raw.account != null ? String(raw.account) : '',
+          own_account: raw.own_account != null ? String(raw.own_account).trim() : '',
+          account: raw.account != null ? String(raw.account).trim() : '',
           category: raw.category != null ? String(raw.category) : 'Not defined'
         };
 
@@ -3448,6 +3479,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           description: '',
           amount: '',
           balance: '',
+          ownAccount: '',
           account: '',
           category: '',
           delimiter: ','
@@ -3520,10 +3552,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           /\bbedrag\b/
         ]);
         this.csvMapping.balance = pick([/saldo voor boeking/, /^saldo$/, /\bbalance\b/]);
+        this.csvMapping.ownAccount = pick([/^je rekening$/, /\bje rekening\b/]);
         this.csvMapping.account = pick([/^van\s*\/?\s*naar$/, /\bvan\s*\/?\s*naar\b/, /^tegenrekening$/]);
-        if (!this.csvMapping.account) {
-          this.csvMapping.account = pick([/^je rekening$/, /\brekening\b/]);
-        }
         this.csvMapping.category = pick([/^categorie$/, /^category$/]);
 
         console.log('Auto-detected mappings:', this.csvMapping);
@@ -3588,6 +3618,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           descriptionIndex: mapping.description !== '' ? parseInt(mapping.description, 10) : -1,
           amountIndex: mapping.amount !== '' ? parseInt(mapping.amount, 10) : -1,
           balanceIndex: mapping.balance !== '' ? parseInt(mapping.balance, 10) : -1,
+          ownAccountIndex: mapping.ownAccount !== '' ? parseInt(mapping.ownAccount, 10) : -1,
           accountIndex: mapping.account !== '' ? parseInt(mapping.account, 10) : -1,
           categoryIndex: mapping.category !== '' ? parseInt(mapping.category, 10) : -1
         };
@@ -3632,6 +3663,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           descriptionIndex,
           amountIndex,
           balanceIndex,
+          ownAccountIndex,
           accountIndex,
           categoryIndex
         } = indices;
@@ -3644,6 +3676,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           descriptionIndex,
           amountIndex,
           balanceIndex,
+          ownAccountIndex,
           accountIndex,
           categoryIndex
         ].filter((idx) => idx !== -1);
@@ -3658,6 +3691,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const description = getCell(descriptionIndex);
         const amountStr = getCell(amountIndex);
         const balanceStr = getCell(balanceIndex);
+        const ownAccountStr = getCell(ownAccountIndex);
         const accountStr = getCell(accountIndex);
         const categoryStr = getCell(categoryIndex);
 
@@ -3708,7 +3742,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             amount,
             balance,
             category: finalCategory,
-            account: accountStr || ''
+            own_account: this.trimCsvAccount(ownAccountStr),
+            account: this.trimCsvAccount(accountStr)
           },
           reason: null
         };
@@ -3775,7 +3810,121 @@ document.addEventListener('DOMContentLoaded', async () => {
         return existingTransaction.date === parsedTransaction.date &&
           existingTransaction.amount === parsedTransaction.amount &&
           existingTransaction.description === parsedTransaction.description &&
+          (existingTransaction.own_account || '') === (parsedTransaction.own_account || '') &&
           (existingTransaction.account || '') === (parsedTransaction.account || '');
+      },
+
+      isTransactionVisibleInTableFilters(transaction) {
+        if (!transaction) return false;
+
+        if (this.transactionFilters.search) {
+          const search = this.transactionFilters.search.toLowerCase();
+          const haystack = `${transaction.description || ''} ${transaction.category || ''}`.toLowerCase();
+          if (!haystack.includes(search)) {
+            return false;
+          }
+        }
+
+        if (this.transactionFilters.category && transaction.category !== this.transactionFilters.category) {
+          return false;
+        }
+
+        if (this.transactionFilters.type) {
+          if (this.transactionFilters.type === 'income' && transaction.amount < 0) return false;
+          if (this.transactionFilters.type === 'expense' && transaction.amount >= 0) return false;
+        }
+
+        if (this.transactionFilters.period) {
+          const now = new Date();
+          let startDate;
+          switch (this.transactionFilters.period) {
+            case 'this_month':
+              startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+              break;
+            case 'last_month':
+              startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+              break;
+            case 'this_year':
+              startDate = new Date(now.getFullYear(), 0, 1);
+              break;
+            case 'last_year':
+              startDate = new Date(now.getFullYear() - 1, 0, 1);
+              break;
+            default:
+              startDate = null;
+          }
+          if (startDate && new Date(transaction.date) < startDate) {
+            return false;
+          }
+        }
+
+        if (this.selectedAccount && (transaction.own_account || '') !== this.selectedAccount) {
+          return false;
+        }
+
+        return true;
+      },
+
+      getTransactionTableVisibilityIssue(transaction) {
+        if (!transaction) return null;
+        if (this.selectedAccount && (transaction.own_account || '') !== this.selectedAccount) {
+          return 'rekeningfilter';
+        }
+        if (this.transactionFilters.search) {
+          const search = this.transactionFilters.search.toLowerCase();
+          const haystack = `${transaction.description || ''} ${transaction.category || ''}`.toLowerCase();
+          if (!haystack.includes(search)) return 'zoekfilter';
+        }
+        if (this.transactionFilters.category && transaction.category !== this.transactionFilters.category) {
+          return 'categoriefilter';
+        }
+        if (this.transactionFilters.type) {
+          if (this.transactionFilters.type === 'income' && transaction.amount < 0) return 'typefilter';
+          if (this.transactionFilters.type === 'expense' && transaction.amount >= 0) return 'typefilter';
+        }
+        if (this.transactionFilters.period) {
+          const now = new Date();
+          let startDate;
+          switch (this.transactionFilters.period) {
+            case 'this_month':
+              startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+              break;
+            case 'last_month':
+              startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+              break;
+            case 'this_year':
+              startDate = new Date(now.getFullYear(), 0, 1);
+              break;
+            case 'last_year':
+              startDate = new Date(now.getFullYear() - 1, 0, 1);
+              break;
+            default:
+              startDate = null;
+          }
+          if (startDate && new Date(transaction.date) < startDate) return 'periodefilter';
+        }
+        return null;
+      },
+
+      clearTransactionTableFilters() {
+        this.selectedAccount = '';
+        this.showAccountFilter = false;
+        this.transactionFilters = {
+          search: '',
+          category: '',
+          type: '',
+          period: ''
+        };
+        this.transactionTablePage = 1;
+      },
+
+      async showAllTransactionsInTable() {
+        this.clearTransactionTableFilters();
+        if (this.transactionsLoadMode !== 'full' || this.transactions.length < this.totalTransactionCount) {
+          await this.loadTransactions('full');
+        }
+        this.currentPage = 'transactions';
+        showToast(`${this.transactions.length} transacties zichtbaar in tabel`, 'success');
       },
 
       isDuplicateTransaction(newTransaction) {
@@ -3963,7 +4112,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
 
           const missingRows = [];
+          const hiddenInTableRows = [];
           let matchedCount = 0;
+          let visibleInTableCount = 0;
           let csvDuplicateMatchCount = 0;
 
           for (let i = 1; i < lines.length; i++) {
@@ -3982,6 +4133,21 @@ document.addEventListener('DOMContentLoaded', async () => {
               if (matches.length > 1) {
                 csvDuplicateMatchCount += 1;
               }
+
+              const dbTransaction = matches[0];
+              if (this.isTransactionVisibleInTableFilters(dbTransaction)) {
+                visibleInTableCount += 1;
+              } else {
+                hiddenInTableRows.push({
+                  csvLine: i + 1,
+                  date: parsed.transaction.date,
+                  amount: parsed.transaction.amount,
+                  description: parsed.transaction.description,
+                  ownAccount: dbTransaction.own_account || '',
+                  account: dbTransaction.account || '',
+                  reason: this.getTransactionTableVisibilityIssue(dbTransaction) || 'filter'
+                });
+              }
               continue;
             }
 
@@ -3990,6 +4156,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               date: parsed.transaction.date,
               amount: parsed.transaction.amount,
               description: parsed.transaction.description,
+              ownAccount: parsed.transaction.own_account || '',
               account: parsed.transaction.account || '',
               balance: parsed.transaction.balance,
               category: parsed.transaction.category
@@ -3998,6 +4165,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           const validRows = parseResult.rows.length;
           const missingCount = missingRows.length;
+          const hiddenInTableCount = hiddenInTableRows.length;
+          const transactionsLoaded = this.transactions.length;
+          const notLoadedCount = Math.max(0, this.totalTransactionCount - transactionsLoaded);
 
           this.csvCheckResult = {
             fileName: this.selectedCsvFile.name,
@@ -4005,19 +4175,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             validRows,
             matchedCount,
             missingCount,
+            visibleInTableCount,
+            hiddenInTableCount,
             skippedInvalid: parseResult.skippedInvalid,
             csvDuplicateMatchCount,
-            missingRows
+            transactionsLoaded,
+            totalTransactionCount: this.totalTransactionCount,
+            selectedAccount: this.selectedAccount || '',
+            missingRows,
+            hiddenInTableRows
           };
 
           const parts = [
-            `${matchedCount} van ${validRows} CSV-regels staan in de database`,
-            `${missingCount} ontbreken`
+            `${matchedCount} van ${validRows} in database`,
+            `${visibleInTableCount} zichtbaar in transactietabel`
           ];
+          if (missingCount > 0) parts.push(`${missingCount} ontbreken`);
+          if (hiddenInTableCount > 0) parts.push(`${hiddenInTableCount} verborgen door filters`);
+          if (notLoadedCount > 0) parts.push(`${notLoadedCount} niet geladen in geheugen`);
           if (parseResult.skippedInvalid > 0) {
             parts.push(`${parseResult.skippedInvalid} ongeldige regels overgeslagen`);
           }
-          showToast(parts.join(', '), missingCount > 0 ? 'error' : 'success');
+          showToast(parts.join(', '), (missingCount > 0 || hiddenInTableCount > 0) ? 'error' : 'success');
         } catch (error) {
           console.error('Error checking CSV import:', error);
           showToast('Fout bij controleren CSV bestand', 'error');
