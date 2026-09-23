@@ -567,7 +567,7 @@
                 <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
                     <div>
                         <h2 class="text-2xl font-bold text-white mb-2">Statistieken</h2>
-                        <p class="text-gray-400">Grafieken per categorie: inkomsten en uitgaven per maand ({{ statisticsYears }} {{ statisticsYears === 1 ? 'jaar' : 'jaar' }})</p>
+                        <p class="text-gray-400">Netto per maand (inkomsten − uitgaven): groen boven nul, rood eronder (laatste {{ statisticsYears }} jaar)</p>
                     </div>
                     <div class="flex items-center gap-2">
                         <span class="text-xs text-gray-500 uppercase font-bold">Periode</span>
@@ -576,7 +576,7 @@
                                     @click="setStatisticsYears(years)"
                                     class="px-4 py-2 text-sm font-medium transition"
                                     :class="statisticsYears === years ? 'bg-primary text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'">
-                                {{ years }} {{ years === 1 ? 'jaar' : 'jaar' }}
+                                {{ years }} jaar
                             </button>
                         </div>
                     </div>
@@ -594,7 +594,7 @@
                         </div>
                         <div class="mt-4 text-sm text-gray-400">
                             <div class="flex justify-between items-center">
-                                <span>Totaal ({{ statisticsYears }} {{ statisticsYears === 1 ? 'jaar' : 'jaar' }}):</span>
+                                <span>Totaal ({{ statisticsYears }} jaar):</span>
                                 <div class="flex gap-4">
                                     <span class="text-red-400">
                                         -€{{ formatAmount(chart.totalExpenses) }}
@@ -603,7 +603,7 @@
                                         +€{{ formatAmount(chart.totalIncome) }}
                                     </span>
                                     <span :class="chart.netTotal >= 0 ? 'text-green-400' : 'text-red-400'">
-                                        = €{{ formatAmount(chart.netTotal) }}
+                                        = {{ chart.netTotal >= 0 ? '+' : '−' }}€{{ formatAmount(Math.abs(chart.netTotal)) }}
                                     </span>
                                 </div>
                             </div>
