@@ -410,6 +410,7 @@
                                     <th v-if="columnVisibility.date" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Datum</th>
                                     <th v-if="columnVisibility.name" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Naam</th>
                                     <th v-if="columnVisibility.description" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Omschrijving</th>
+                                    <th v-if="columnVisibility.ownAccount" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Mijn rekening</th>
                                     <th v-if="columnVisibility.account" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Van/Naar</th>
                                     <th v-if="columnVisibility.category" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
                                     <th v-if="columnVisibility.amount" class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Bedrag</th>
@@ -429,6 +430,9 @@
                                     </td>
                                     <td v-if="columnVisibility.description" class="px-4 py-3">
                                         <div class="text-sm font-medium text-white">{{ transaction.description }}</div>
+                                    </td>
+                                    <td v-if="columnVisibility.ownAccount" class="px-4 py-3">
+                                        <div class="text-sm text-gray-300">{{ transaction.own_account || '-' }}</div>
                                     </td>
                                     <td v-if="columnVisibility.account" class="px-4 py-3">
                                         <div class="text-sm text-gray-300">{{ transaction.account || '-' }}</div>
@@ -1234,8 +1238,13 @@
                 </div>
 
                 <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Mijn rekening</label>
+                    <input v-model="transactionForm.ownAccount" type="text" placeholder="Bijv. NL12BANK0123456789" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Van/Naar</label>
-                    <input v-model="transactionForm.account" type="text" placeholder="Bijv. werkgever, winkel..." class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                    <input v-model="transactionForm.account" type="text" placeholder="Tegenrekening (optioneel)" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
                 </div>
 
                 <div>
@@ -1431,8 +1440,8 @@
                     </div>
                 </div>
                 <div v-if="csvImportMode === 'check'" class="text-xs text-gray-400 leading-relaxed">
-                    Match op datum, bedrag, omschrijving (Naam + Omschrijving) en rekening — zelfde regels als import en duplicate-detectie.
-                    Map minimaal Datum, Bedrag; voor SNS ook Naam, Omschrijving en Van/naar.
+                    Match op datum, bedrag, omschrijving, mijn rekening (Je rekening) en Van/Naar — zelfde regels als import.
+                    Map minimaal Datum en Bedrag; voor SNS ook Naam, Omschrijving, Je rekening en Van/Naar.
                 </div>
                 <div v-if="csvImportMode === 'update'" class="space-y-2">
                     <label class="block text-xs font-bold text-gray-500 uppercase">Veld om bij te werken</label>
@@ -1442,7 +1451,7 @@
                         </option>
                     </select>
                     <p class="text-xs text-gray-400 leading-relaxed">
-                        Match op <strong class="text-gray-300">datum, bedrag, omschrijving en rekening</strong> (zelfde als duplicate-detectie).
+                        Match op <strong class="text-gray-300">datum, bedrag, omschrijving, mijn rekening en Van/Naar</strong> (zelfde als duplicate-detectie).
                         Map de kolom voor <strong class="text-gray-300">{{ csvUpdateFieldDefinition.label }}</strong> plus de match-kolommen.
                         Er worden geen nieuwe transacties aangemaakt.
                     </p>
@@ -1506,10 +1515,17 @@
                         </select>
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Rekening</label>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Mijn rekening (Je rekening)</label>
+                        <select v-model="csvMapping.ownAccount" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                            <option value="">Niet importeren</option>
+                            <option v-for="(column, index) in csvColumns" :key="'own-' + index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Van/Naar</label>
                         <select v-model="csvMapping.account" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
                             <option value="">Niet importeren</option>
-                            <option v-for="(column, index) in csvColumns" :key="index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
+                            <option v-for="(column, index) in csvColumns" :key="'acc-' + index" :value="index">{{ column }} (Kolom {{ index + 1 }})</option>
                         </select>
                     </div>
                 </div>
@@ -1549,7 +1565,7 @@
                 <div v-else-if="csvCheckResult.missingCount === 0 && csvCheckResult.hiddenInTableCount > 0" class="p-4 text-sm text-amber-300 space-y-2">
                     <p>Alle CSV-regels staan in de database, maar {{ csvCheckResult.hiddenInTableCount }} worden niet getoond in de transactietabel.</p>
                     <p v-if="csvCheckResult.selectedAccount" class="text-xs text-gray-400">
-                        Actief rekeningfilter: {{ csvCheckResult.selectedAccount }} — transacties met andere of lege Van/Naar vallen dan weg.
+                        Actief rekeningfilter: {{ csvCheckResult.selectedAccount }} — alleen transacties met die mijn-rekening (Je rekening) zijn zichtbaar.
                         Kies <strong class="text-gray-300">Alle rekeningen</strong> bij Transacties of Insights.
                     </p>
                     <p class="text-xs text-gray-400">De tabel toont {{ transactionsTablePageSize }} transacties per pagina; blader onderaan met Vorige/Volgende.</p>

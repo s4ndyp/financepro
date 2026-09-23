@@ -150,7 +150,7 @@ const CLIENT_ID = 'sandman'; // In productie zou dit dynamisch zijn
 const API_URL = ''; // Zelfde origin; PocketBase serveert static + /api
 const TRANSACTIONS_DEFAULT_LIMIT = 500;
 const FINANCEPRO_BACKUP_FORMAT = 'financepro-backup';
-const FINANCEPRO_BACKUP_VERSION = 2;
+const FINANCEPRO_BACKUP_VERSION = 3;
 const TRANSACTIONS_TABLE_PAGE_SIZE = 100;
 
 /** Velden die via CSV bijwerk-modus op bestaande transacties gezet mogen worden */
@@ -235,6 +235,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: '',
           description: '',
           amount: '',
+          ownAccount: '',
           account: '',
           category: ''
         },
@@ -266,6 +267,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           description: '',
           amount: '',
           balance: '',
+          ownAccount: '',
           account: '',
           category: '',
           delimiter: ','
@@ -276,6 +278,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           date: true,
           name: true,
           description: true,
+          ownAccount: false,
           account: true,
           category: true,
           amount: true,
@@ -408,9 +411,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         }
 
-        // Account filter
+        // Account filter (mijn rekening / own_account)
         if (this.selectedAccount) {
-          filtered = filtered.filter(t => t.account === this.selectedAccount);
+          filtered = filtered.filter(t => (t.own_account || '') === this.selectedAccount);
         }
 
         // Sort by date (newest first)
@@ -466,7 +469,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Available accounts for filtering
       availableAccounts() {
-        const accounts = [...new Set(this.transactions.map(t => t.account).filter(account => account && account.trim()))];
+        const accounts = [...new Set(
+          this.transactions.map(t => (t.own_account || '').trim()).filter(Boolean)
+        )];
         return accounts.sort();
       },
 
@@ -643,6 +648,20 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
           throw error;
         }
+      },
+
+      trimCsvAccount(value) {
+        if (value == null) return '';
+        return String(value).trim();
+      },
+
+      getTransactionOwnAccount(transaction) {
+        return this.trimCsvAccount(transaction?.own_account);
+      },
+
+      getChartAccountKey(transaction) {
+        const ownAccount = this.getTransactionOwnAccount(transaction);
+        return ownAccount || 'Geen mijn rekening';
       },
 
       normalizeAccountName(account) {
@@ -1093,7 +1112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1173,7 +1192,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1258,7 +1277,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1368,7 +1387,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1868,7 +1887,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected and by time range
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1941,7 +1960,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -1996,7 +2015,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       getCategoryPieData() {
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // Apply time range filter
@@ -2071,16 +2090,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         let filteredTransactions = sourceTransactions;
         if (this.selectedAccount) {
           filteredTransactions = sourceTransactions.filter(
-            (t) => this.normalizeAccountName(t.account) === this.normalizeAccountName(this.selectedAccount)
+            (t) => (t.own_account || '') === this.selectedAccount
           );
         }
 
-        const accounts = [...new Set(filteredTransactions.map((t) => this.normalizeAccountName(t.account)))].sort();
+        const accounts = [...new Set(filteredTransactions.map((t) => this.getChartAccountKey(t)))].sort();
 
         const transactionsByAccount = {};
         accounts.forEach((account) => {
           transactionsByAccount[account] = filteredTransactions
-            .filter((t) => this.normalizeAccountName(t.account) === account)
+            .filter((t) => this.getChartAccountKey(t) === account)
             .sort((a, b) => new Date(a.date) - new Date(b.date));
         });
 
@@ -2124,7 +2143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? transactionSource.filter(t => t.account === this.selectedAccount)
+          ? transactionSource.filter(t => (t.own_account || '') === this.selectedAccount)
           : transactionSource;
 
         const statistics = {};
@@ -2271,7 +2290,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         let filteredTransactions = this.selectedAccount
           ? sourceTransactions.filter(
-            (t) => this.normalizeAccountName(t.account) === this.normalizeAccountName(this.selectedAccount)
+            (t) => (t.own_account || '') === this.selectedAccount
           )
           : sourceTransactions;
 
@@ -2281,12 +2300,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           return transactionDate >= timeRangeFilter.startDate && transactionDate <= timeRangeFilter.endDate;
         });
 
-        const accounts = [...new Set(filteredTransactions.map((t) => this.normalizeAccountName(t.account)))].sort();
+        const accounts = [...new Set(filteredTransactions.map((t) => this.getChartAccountKey(t)))].sort();
 
         const transactionsByAccount = {};
         accounts.forEach((account) => {
           transactionsByAccount[account] = filteredTransactions
-            .filter((t) => this.normalizeAccountName(t.account) === account)
+            .filter((t) => this.getChartAccountKey(t) === account)
             .sort((a, b) => new Date(a.date) - new Date(b.date));
         });
 
@@ -2369,7 +2388,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Filter transactions by account if selected
         let filteredTransactions = this.selectedAccount
-          ? this.transactions.filter(t => t.account === this.selectedAccount)
+          ? this.transactions.filter(t => (t.own_account || '') === this.selectedAccount)
           : this.transactions;
 
         // For the income/expense chart, we don't apply additional time filtering
@@ -2433,6 +2452,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: '',
           description: '',
           amount: '',
+          ownAccount: '',
           account: '',
           category: this.categories.length > 0 ? this.categories[0].name : ''
         };
@@ -2446,6 +2466,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: transaction.name || '',
           description: transaction.description,
           amount: transaction.amount.toString(),
+          ownAccount: transaction.own_account || '',
           account: transaction.account || '',
           category: transaction.category
         };
@@ -2460,6 +2481,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: '',
           description: '',
           amount: '',
+          ownAccount: '',
           account: '',
           category: ''
         };
@@ -2488,7 +2510,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             name: this.transactionForm.name.trim(),
             description: this.transactionForm.description.trim(),
             amount: parseFloat(this.transactionForm.amount),
-            account: this.transactionForm.account.trim(),
+            own_account: this.trimCsvAccount(this.transactionForm.ownAccount),
+            account: this.trimCsvAccount(this.transactionForm.account),
             category: this.transactionForm.category
           };
 
@@ -3193,6 +3216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: transaction.name || '',
           description: transaction.description || '',
           amount: Number(transaction.amount),
+          own_account: transaction.own_account || '',
           account: transaction.account || '',
           category: transaction.category || ''
         };
@@ -3300,7 +3324,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           name: name.slice(0, 500),
           description: description.slice(0, 2000),
           amount: Number(raw.amount),
-          account: raw.account != null ? String(raw.account) : '',
+          own_account: raw.own_account != null ? String(raw.own_account).trim() : '',
+          account: raw.account != null ? String(raw.account).trim() : '',
           category: raw.category != null ? String(raw.category) : 'Not defined'
         };
 
@@ -3454,6 +3479,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           description: '',
           amount: '',
           balance: '',
+          ownAccount: '',
           account: '',
           category: '',
           delimiter: ','
@@ -3526,10 +3552,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           /\bbedrag\b/
         ]);
         this.csvMapping.balance = pick([/saldo voor boeking/, /^saldo$/, /\bbalance\b/]);
+        this.csvMapping.ownAccount = pick([/^je rekening$/, /\bje rekening\b/]);
         this.csvMapping.account = pick([/^van\s*\/?\s*naar$/, /\bvan\s*\/?\s*naar\b/, /^tegenrekening$/]);
-        if (!this.csvMapping.account) {
-          this.csvMapping.account = pick([/^je rekening$/, /\brekening\b/]);
-        }
         this.csvMapping.category = pick([/^categorie$/, /^category$/]);
 
         console.log('Auto-detected mappings:', this.csvMapping);
@@ -3594,6 +3618,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           descriptionIndex: mapping.description !== '' ? parseInt(mapping.description, 10) : -1,
           amountIndex: mapping.amount !== '' ? parseInt(mapping.amount, 10) : -1,
           balanceIndex: mapping.balance !== '' ? parseInt(mapping.balance, 10) : -1,
+          ownAccountIndex: mapping.ownAccount !== '' ? parseInt(mapping.ownAccount, 10) : -1,
           accountIndex: mapping.account !== '' ? parseInt(mapping.account, 10) : -1,
           categoryIndex: mapping.category !== '' ? parseInt(mapping.category, 10) : -1
         };
@@ -3638,6 +3663,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           descriptionIndex,
           amountIndex,
           balanceIndex,
+          ownAccountIndex,
           accountIndex,
           categoryIndex
         } = indices;
@@ -3650,6 +3676,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           descriptionIndex,
           amountIndex,
           balanceIndex,
+          ownAccountIndex,
           accountIndex,
           categoryIndex
         ].filter((idx) => idx !== -1);
@@ -3664,6 +3691,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const description = getCell(descriptionIndex);
         const amountStr = getCell(amountIndex);
         const balanceStr = getCell(balanceIndex);
+        const ownAccountStr = getCell(ownAccountIndex);
         const accountStr = getCell(accountIndex);
         const categoryStr = getCell(categoryIndex);
 
@@ -3714,7 +3742,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             amount,
             balance,
             category: finalCategory,
-            account: accountStr || ''
+            own_account: this.trimCsvAccount(ownAccountStr),
+            account: this.trimCsvAccount(accountStr)
           },
           reason: null
         };
@@ -3781,6 +3810,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return existingTransaction.date === parsedTransaction.date &&
           existingTransaction.amount === parsedTransaction.amount &&
           existingTransaction.description === parsedTransaction.description &&
+          (existingTransaction.own_account || '') === (parsedTransaction.own_account || '') &&
           (existingTransaction.account || '') === (parsedTransaction.account || '');
       },
 
@@ -3828,7 +3858,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         }
 
-        if (this.selectedAccount && (transaction.account || '') !== this.selectedAccount) {
+        if (this.selectedAccount && (transaction.own_account || '') !== this.selectedAccount) {
           return false;
         }
 
@@ -3837,7 +3867,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       getTransactionTableVisibilityIssue(transaction) {
         if (!transaction) return null;
-        if (this.selectedAccount && (transaction.account || '') !== this.selectedAccount) {
+        if (this.selectedAccount && (transaction.own_account || '') !== this.selectedAccount) {
           return 'rekeningfilter';
         }
         if (this.transactionFilters.search) {
@@ -4113,6 +4143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                   date: parsed.transaction.date,
                   amount: parsed.transaction.amount,
                   description: parsed.transaction.description,
+                  ownAccount: dbTransaction.own_account || '',
                   account: dbTransaction.account || '',
                   reason: this.getTransactionTableVisibilityIssue(dbTransaction) || 'filter'
                 });
@@ -4125,6 +4156,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               date: parsed.transaction.date,
               amount: parsed.transaction.amount,
               description: parsed.transaction.description,
+              ownAccount: parsed.transaction.own_account || '',
               account: parsed.transaction.account || '',
               balance: parsed.transaction.balance,
               category: parsed.transaction.category
