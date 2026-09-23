@@ -295,8 +295,11 @@
                         <button @click="toggleColumnSettings = !toggleColumnSettings" class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
                             <i class="fas fa-columns"></i> Kolommen
                         </button>
-                        <button @click="openCsvImportModal" class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
+                        <button @click="openCsvImportModal()" class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
                             <i class="fas fa-file-import"></i> CSV Import
+                        </button>
+                        <button @click="openCsvImportCheckModal" class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm">
+                            <i class="fas fa-clipboard-check"></i> Import check
                         </button>
                         <button @click="exportFinanceProBackup" :disabled="isExportingBackup"
                                 class="py-2 px-4 bg-gray-700 hover:bg-gray-600 text-gray-300 font-medium rounded-xl transition flex items-center gap-2 text-sm disabled:opacity-50">
@@ -1382,27 +1385,41 @@
 
     <!-- CSV Import Modal -->
     <div v-if="showCsvImportModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="closeCsvImportModal">
-        <div class="bg-dark_paper w-full max-w-2xl rounded-2xl border border-gray-700 shadow-2xl p-6 flex flex-col max-h-[85vh]">
+        <div class="bg-dark_paper w-full rounded-2xl border border-gray-700 shadow-2xl p-6 flex flex-col max-h-[90vh]"
+             :class="csvCheckResult ? 'max-w-5xl' : 'max-w-2xl'">
             <h3 class="font-bold text-lg text-white mb-2 flex items-center gap-2">
-                <i class="fas fa-file-import text-primary"></i> CSV Import
+                <i :class="csvImportMode === 'check' ? 'fas fa-clipboard-check text-primary' : 'fas fa-file-import text-primary'"></i>
+                {{ csvImportMode === 'check' ? 'CSV Import check' : 'CSV Import' }}
             </h3>
-            <p class="text-gray-400 text-sm mb-4">Importeer transacties uit een CSV bestand of werk één veld bij op bestaande transacties.</p>
+            <p class="text-gray-400 text-sm mb-4">
+                <span v-if="csvImportMode === 'check'">Vergelijk een CSV met de database: welke regels ontbreken nog?</span>
+                <span v-else>Importeer transacties uit een CSV bestand of werk één veld bij op bestaande transacties.</span>
+            </p>
 
             <div class="bg-gray-800/50 p-4 rounded-xl border border-gray-700 mb-4 space-y-3">
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Modus</label>
-                    <div class="flex flex-col sm:flex-row gap-2">
+                    <div class="flex flex-col lg:flex-row gap-2">
                         <label class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition"
                                :class="csvImportMode === 'create' ? 'border-primary bg-primary/10 text-white' : 'border-gray-600 text-gray-300 hover:border-gray-500'">
-                            <input type="radio" class="accent-primary" value="create" v-model="csvImportMode">
+                            <input type="radio" class="accent-primary" value="create" v-model="csvImportMode" @change="onCsvImportModeChange">
                             <span class="text-sm">Nieuwe transacties importeren</span>
                         </label>
                         <label class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition"
                                :class="csvImportMode === 'update' ? 'border-primary bg-primary/10 text-white' : 'border-gray-600 text-gray-300 hover:border-gray-500'">
-                            <input type="radio" class="accent-primary" value="update" v-model="csvImportMode">
+                            <input type="radio" class="accent-primary" value="update" v-model="csvImportMode" @change="onCsvImportModeChange">
                             <span class="text-sm">Bestaande records bijwerken</span>
                         </label>
+                        <label class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition"
+                               :class="csvImportMode === 'check' ? 'border-primary bg-primary/10 text-white' : 'border-gray-600 text-gray-300 hover:border-gray-500'">
+                            <input type="radio" class="accent-primary" value="check" v-model="csvImportMode" @change="onCsvImportModeChange">
+                            <span class="text-sm">Import controleren</span>
+                        </label>
                     </div>
+                </div>
+                <div v-if="csvImportMode === 'check'" class="text-xs text-gray-400 leading-relaxed">
+                    Match op datum, bedrag, omschrijving (Naam + Omschrijving) en rekening — zelfde regels als import en duplicate-detectie.
+                    Map minimaal Datum, Bedrag; voor SNS ook Naam, Omschrijving en Van/naar.
                 </div>
                 <div v-if="csvImportMode === 'update'" class="space-y-2">
                     <label class="block text-xs font-bold text-gray-500 uppercase">Veld om bij te werken</label>
@@ -1499,7 +1516,48 @@
                 </div>
             </div>
 
-            <div class="flex-1 overflow-y-auto bg-dark/50 rounded-lg border border-gray-700/50 p-2 mb-4">
+            <div v-if="csvCheckResult" class="mb-4 bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
+                <div class="p-4 border-b border-gray-700 flex flex-wrap gap-3 text-sm">
+                    <span class="text-green-400"><i class="fas fa-check-circle mr-1"></i>{{ csvCheckResult.matchedCount }} in database</span>
+                    <span :class="csvCheckResult.missingCount > 0 ? 'text-red-400' : 'text-gray-400'">
+                        <i class="fas fa-exclamation-circle mr-1"></i>{{ csvCheckResult.missingCount }} ontbreken
+                    </span>
+                    <span class="text-gray-400">{{ csvCheckResult.validRows }} geldige CSV-regels</span>
+                    <span v-if="csvCheckResult.skippedInvalid > 0" class="text-yellow-400">{{ csvCheckResult.skippedInvalid }} ongeldig</span>
+                    <span v-if="csvCheckResult.csvDuplicateMatchCount > 0" class="text-yellow-400">{{ csvCheckResult.csvDuplicateMatchCount }}× meerdere DB-matches</span>
+                </div>
+                <div v-if="csvCheckResult.missingCount === 0" class="p-4 text-sm text-green-400">
+                    Alle geldige regels uit dit bestand staan in de database.
+                </div>
+                <div v-else class="max-h-64 overflow-y-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-gray-900/40 sticky top-0">
+                            <tr class="text-xs text-gray-500 uppercase">
+                                <th class="px-3 py-2">Regel</th>
+                                <th class="px-3 py-2">Datum</th>
+                                <th class="px-3 py-2 text-right">Bedrag</th>
+                                <th class="px-3 py-2">Rekening</th>
+                                <th class="px-3 py-2">Omschrijving</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(row, i) in csvCheckResult.missingRows" :key="i"
+                                class="border-t border-gray-700/40 hover:bg-white/5">
+                                <td class="px-3 py-2 text-gray-500 font-mono text-xs">{{ row.csvLine }}</td>
+                                <td class="px-3 py-2 text-gray-300 whitespace-nowrap">{{ formatDate(row.date) }}</td>
+                                <td class="px-3 py-2 text-right whitespace-nowrap"
+                                    :class="row.amount < 0 ? 'text-red-400' : 'text-green-400'">
+                                    €{{ formatAmount(row.amount) }}
+                                </td>
+                                <td class="px-3 py-2 text-gray-400 text-xs max-w-[120px] truncate" :title="row.account">{{ row.account || '—' }}</td>
+                                <td class="px-3 py-2 text-gray-300 text-xs max-w-md truncate" :title="row.description">{{ row.description }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div v-if="!csvCheckResult || csvImportMode !== 'check'" class="flex-1 overflow-y-auto bg-dark/50 rounded-lg border border-gray-700/50 p-2 mb-4">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-xs text-gray-400">Voorbeeld Data</span>
                     <span v-if="!selectedCsvFile" class="text-xs text-yellow-400 bg-yellow-500/10 px-2 py-1 rounded">Demo data</span>
@@ -1520,10 +1578,17 @@
 
             <div class="flex justify-end gap-2">
                 <button @click="closeCsvImportModal" class="px-4 py-2 text-gray-400 hover:text-white transition">Annuleren</button>
+                <button v-if="csvImportMode === 'check' && csvCheckResult"
+                        type="button"
+                        @click="csvCheckResult = null"
+                        class="px-4 py-2 text-gray-300 hover:text-white border border-gray-600 rounded-lg transition">
+                    Opnieuw
+                </button>
                 <button @click="processCsvImport"
                         :disabled="isProcessingCsvImport"
                         class="px-6 py-2 bg-primary hover:opacity-90 disabled:opacity-50 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
                     <i v-if="isProcessingCsvImport" class="fas fa-circle-notch fa-spin"></i>
+                    <i v-else-if="csvImportMode === 'check'" class="fas fa-search"></i>
                     <i v-else class="fas fa-check"></i>
                     {{ csvImportPrimaryActionLabel }}
                 </button>
