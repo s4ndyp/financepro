@@ -22,6 +22,35 @@ function formatDate(dateString) {
   });
 }
 
+/** Lineaire trend (least squares) over maandindex 0..n-1 */
+function computeLinearTrendLine(values) {
+  if (!values || values.length === 0) return [];
+  if (values.length === 1) return [values[0]];
+
+  const n = values.length;
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumXX = 0;
+
+  for (let i = 0; i < n; i++) {
+    sumX += i;
+    sumY += values[i];
+    sumXY += i * values[i];
+    sumXX += i * i;
+  }
+
+  const denom = n * sumXX - sumX * sumX;
+  if (denom === 0) {
+    const avg = sumY / n;
+    return values.map(() => avg);
+  }
+
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const intercept = (sumY - slope * sumX) / n;
+  return values.map((_, i) => intercept + slope * i);
+}
+
 function showToast(message, type = 'success') {
   if (!window.app) return;
 
@@ -1775,17 +1804,34 @@ document.addEventListener('DOMContentLoaded', async () => {
             data: {
               labels: chart.labels,
               datasets: [{
+                type: 'bar',
                 label: 'Uitgaven',
                 data: chart.expenseData,
-                backgroundColor: '#ef4444', // Red for expenses
+                backgroundColor: '#ef4444',
                 borderColor: '#ef4444',
-                borderWidth: 1
+                borderWidth: 1,
+                order: 2
               }, {
+                type: 'bar',
                 label: 'Inkomsten',
                 data: chart.incomeData,
-                backgroundColor: '#10b981', // Green for income
+                backgroundColor: '#10b981',
                 borderColor: '#10b981',
-                borderWidth: 1
+                borderWidth: 1,
+                order: 2
+              }, {
+                type: 'line',
+                label: 'Trend netto',
+                data: chart.netTrendLine,
+                borderColor: '#a855f7',
+                backgroundColor: 'rgba(168, 85, 247, 0.08)',
+                borderWidth: 2,
+                borderDash: [6, 4],
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0,
+                fill: false,
+                order: 1
               }]
             },
             options: {
@@ -1793,7 +1839,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               maintainAspectRatio: false,
               scales: {
                 x: {
-                  ticks: { color: '#9ca3af' },
+                  ticks: { color: '#9ca3af', maxRotation: 45, minRotation: 0 },
                   grid: { color: '#374151' }
                 },
                 y: {
@@ -1808,6 +1854,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 legend: {
                   labels: { color: '#9ca3af' },
                   position: 'top'
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (context) => {
+                      const label = context.dataset.label || '';
+                      const value = context.parsed.y;
+                      return `${label}: €${this.formatAmount(value)}`;
+                    }
+                  }
                 }
               }
             }
@@ -2266,6 +2321,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             months.push(date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' }));
           }
 
+          const netData = incomeData.map((income, index) => income - expenseData[index]);
+          const netTrendLine = computeLinearTrendLine(netData);
+
           // Calculate totals
           const totalIncome = incomeData.reduce((sum, amount) => sum + amount, 0);
           const totalExpenses = expenseData.reduce((sum, amount) => sum + amount, 0);
@@ -2276,6 +2334,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             color: category.color,
             incomeData: incomeData,
             expenseData: expenseData,
+            netTrendLine,
             labels: months,
             totalIncome: totalIncome,
             totalExpenses: totalExpenses,
