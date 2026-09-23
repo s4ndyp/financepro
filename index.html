@@ -1386,7 +1386,38 @@
             <h3 class="font-bold text-lg text-white mb-2 flex items-center gap-2">
                 <i class="fas fa-file-import text-primary"></i> CSV Import
             </h3>
-            <p class="text-gray-400 text-sm mb-4">Importeer transacties uit een CSV bestand. Zorg dat de kolommen correct zijn ingesteld.</p>
+            <p class="text-gray-400 text-sm mb-4">Importeer transacties uit een CSV bestand of werk één veld bij op bestaande transacties.</p>
+
+            <div class="bg-gray-800/50 p-4 rounded-xl border border-gray-700 mb-4 space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Modus</label>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <label class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition"
+                               :class="csvImportMode === 'create' ? 'border-primary bg-primary/10 text-white' : 'border-gray-600 text-gray-300 hover:border-gray-500'">
+                            <input type="radio" class="accent-primary" value="create" v-model="csvImportMode">
+                            <span class="text-sm">Nieuwe transacties importeren</span>
+                        </label>
+                        <label class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition"
+                               :class="csvImportMode === 'update' ? 'border-primary bg-primary/10 text-white' : 'border-gray-600 text-gray-300 hover:border-gray-500'">
+                            <input type="radio" class="accent-primary" value="update" v-model="csvImportMode">
+                            <span class="text-sm">Bestaande records bijwerken</span>
+                        </label>
+                    </div>
+                </div>
+                <div v-if="csvImportMode === 'update'" class="space-y-2">
+                    <label class="block text-xs font-bold text-gray-500 uppercase">Veld om bij te werken</label>
+                    <select v-model="csvUpdateField" class="w-full bg-dark border border-gray-600 rounded-lg p-2 text-white focus:border-primary outline-none">
+                        <option v-for="field in csvUpdatableFieldOptions" :key="field.value" :value="field.value">
+                            {{ field.label }}
+                        </option>
+                    </select>
+                    <p class="text-xs text-gray-400 leading-relaxed">
+                        Match op <strong class="text-gray-300">datum, bedrag, omschrijving en rekening</strong> (zelfde als duplicate-detectie).
+                        Map de kolom voor <strong class="text-gray-300">{{ csvUpdateFieldDefinition.label }}</strong> plus de match-kolommen.
+                        Er worden geen nieuwe transacties aangemaakt.
+                    </p>
+                </div>
+            </div>
 
             <!-- File Selection -->
             <div class="bg-gray-800/50 p-4 rounded-xl border border-gray-700 mb-4">
@@ -1489,8 +1520,12 @@
 
             <div class="flex justify-end gap-2">
                 <button @click="closeCsvImportModal" class="px-4 py-2 text-gray-400 hover:text-white transition">Annuleren</button>
-                <button @click="processCsvImport" class="px-6 py-2 bg-primary hover:opacity-90 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
-                    <i class="fas fa-check"></i> Importeren
+                <button @click="processCsvImport"
+                        :disabled="isProcessingCsvImport"
+                        class="px-6 py-2 bg-primary hover:opacity-90 disabled:opacity-50 text-white font-bold rounded-lg shadow-lg flex items-center gap-2">
+                    <i v-if="isProcessingCsvImport" class="fas fa-circle-notch fa-spin"></i>
+                    <i v-else class="fas fa-check"></i>
+                    {{ csvImportPrimaryActionLabel }}
                 </button>
             </div>
         </div>
