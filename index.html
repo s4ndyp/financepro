@@ -407,14 +407,46 @@
                                     <th class="px-4 py-3 text-left">
                                         <input type="checkbox" v-model="selectAllTransactions" class="rounded border-gray-600">
                                     </th>
-                                    <th v-if="columnVisibility.date" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Datum</th>
-                                    <th v-if="columnVisibility.name" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Naam</th>
-                                    <th v-if="columnVisibility.description" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Omschrijving</th>
-                                    <th v-if="columnVisibility.ownAccount" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Mijn rekening</th>
-                                    <th v-if="columnVisibility.account" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Van/Naar</th>
-                                    <th v-if="columnVisibility.category" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
-                                    <th v-if="columnVisibility.amount" class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Bedrag</th>
-                                    <th v-if="columnVisibility.balance" class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Saldo</th>
+                                    <th v-if="columnVisibility.date" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">
+                                        <button type="button" @click="setTransactionTableSort('date')" class="inline-flex items-center gap-1 hover:text-white transition">
+                                            Datum <i :class="getTransactionTableSortIcon('date')" class="text-[10px]"></i>
+                                        </button>
+                                    </th>
+                                    <th v-if="columnVisibility.name" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">
+                                        <button type="button" @click="setTransactionTableSort('name')" class="inline-flex items-center gap-1 hover:text-white transition">
+                                            Naam <i :class="getTransactionTableSortIcon('name')" class="text-[10px]"></i>
+                                        </button>
+                                    </th>
+                                    <th v-if="columnVisibility.description" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">
+                                        <button type="button" @click="setTransactionTableSort('description')" class="inline-flex items-center gap-1 hover:text-white transition">
+                                            Omschrijving <i :class="getTransactionTableSortIcon('description')" class="text-[10px]"></i>
+                                        </button>
+                                    </th>
+                                    <th v-if="columnVisibility.ownAccount" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">
+                                        <button type="button" @click="setTransactionTableSort('ownAccount')" class="inline-flex items-center gap-1 hover:text-white transition">
+                                            Mijn rekening <i :class="getTransactionTableSortIcon('ownAccount')" class="text-[10px]"></i>
+                                        </button>
+                                    </th>
+                                    <th v-if="columnVisibility.account" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">
+                                        <button type="button" @click="setTransactionTableSort('account')" class="inline-flex items-center gap-1 hover:text-white transition">
+                                            Van/Naar <i :class="getTransactionTableSortIcon('account')" class="text-[10px]"></i>
+                                        </button>
+                                    </th>
+                                    <th v-if="columnVisibility.category" class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">
+                                        <button type="button" @click="setTransactionTableSort('category')" class="inline-flex items-center gap-1 hover:text-white transition">
+                                            Categorie <i :class="getTransactionTableSortIcon('category')" class="text-[10px]"></i>
+                                        </button>
+                                    </th>
+                                    <th v-if="columnVisibility.amount" class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">
+                                        <button type="button" @click="setTransactionTableSort('amount')" class="inline-flex items-center gap-1 hover:text-white transition ml-auto">
+                                            Bedrag <i :class="getTransactionTableSortIcon('amount')" class="text-[10px]"></i>
+                                        </button>
+                                    </th>
+                                    <th v-if="columnVisibility.balance" class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">
+                                        <button type="button" @click="setTransactionTableSort('balance')" class="inline-flex items-center gap-1 hover:text-white transition ml-auto">
+                                            Saldo <i :class="getTransactionTableSortIcon('balance')" class="text-[10px]"></i>
+                                        </button>
+                                    </th>
                                     <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Acties</th>
                                 </tr>
                             </thead>
@@ -1807,7 +1839,7 @@
 
 </div>
 
-<script src="logic.js?v=20260930-rules-or"></script>
+<script src="logic.js?v=20260930-tx-sort"></script>
 
 </body>
 </html>
