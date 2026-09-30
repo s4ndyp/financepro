@@ -274,6 +274,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         },
         ruleForm: {
           name: '',
+          ruleCategory: '',
           condition: {
             field: 'description',
             operator: 'contains',
@@ -284,6 +285,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             value: ''
           }
         },
+        rulesCategoryFilter: '',
+        rulesSortBy: 'name',
         bulkEditForm: {
           category: '',
           name: '',
@@ -504,6 +507,61 @@ document.addEventListener('DOMContentLoaded', async () => {
           this.transactions.map(t => (t.own_account || '').trim()).filter(Boolean)
         )];
         return accounts.sort();
+      },
+
+      ruleFilterCategories() {
+        const names = new Set(this.categories.map(c => c.name));
+        for (const rule of this.rules) {
+          const rc = (rule.rule_category || '').trim();
+          if (rc) names.add(rc);
+        }
+        return [...names].sort((a, b) => a.localeCompare(b, 'nl'));
+      },
+
+      filteredAndSortedRules() {
+        let list = [...this.rules];
+        if (this.rulesCategoryFilter) {
+          list = list.filter(
+            r => (r.rule_category || '') === this.rulesCategoryFilter
+          );
+        }
+        const sortKey = this.rulesSortBy;
+        list.sort((a, b) => {
+          if (sortKey === 'appliedCount') {
+            return (b.appliedCount || 0) - (a.appliedCount || 0);
+          }
+          if (sortKey === 'created') {
+            const ta = a.created ? new Date(a.created).getTime() : 0;
+            const tb = b.created ? new Date(b.created).getTime() : 0;
+            return tb - ta;
+          }
+          return (a.name || '').localeCompare(b.name || '', 'nl', { sensitivity: 'base' });
+        });
+        return list;
+      },
+
+      rulesGroupedByCategory() {
+        if (this.rulesCategoryFilter) return [];
+        const groups = new Map();
+        for (const rule of this.filteredAndSortedRules) {
+          const key = (rule.rule_category || '').trim() || 'Zonder categorie';
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(rule);
+        }
+        const entries = [...groups.entries()];
+        entries.sort((a, b) => {
+          if (a[0] === 'Zonder categorie') return 1;
+          if (b[0] === 'Zonder categorie') return -1;
+          return a[0].localeCompare(b[0], 'nl', { sensitivity: 'base' });
+        });
+        return entries.map(([name, rulesInGroup]) => ({ name, rules: rulesInGroup }));
+      },
+
+      rulesDisplaySections() {
+        if (this.rulesCategoryFilter) {
+          return [{ name: null, rules: this.filteredAndSortedRules }];
+        }
+        return this.rulesGroupedByCategory;
       },
 
       // Time range options
@@ -3005,10 +3063,20 @@ document.addEventListener('DOMContentLoaded', async () => {
       // RULES ENGINE
       // ============================================================================
 
+      getRuleCategoryColor(categoryName) {
+        if (!categoryName) return '#6b7280';
+        const cat = this.categories.find(c => c.name === categoryName);
+        return cat ? cat.color : '#6b7280';
+      },
+
       openAddRuleModal() {
         this.editingRule = null;
+        const defaultCategory =
+          this.rulesCategoryFilter ||
+          (this.categories.length > 0 ? this.categories[0].name : '');
         this.ruleForm = {
           name: '',
+          ruleCategory: defaultCategory,
           condition: {
             field: 'description',
             operator: 'contains',
@@ -3016,7 +3084,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           },
           action: {
             type: 'set_category',
-            value: ''
+            value: this.categories.length > 0 ? this.categories[0].name : ''
           }
         };
         this.showRuleModal = true;
@@ -3026,6 +3094,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.editingRule = rule;
         this.ruleForm = {
           name: rule.name,
+          ruleCategory: rule.rule_category || '',
           condition: { ...rule.condition },
           action: { ...rule.action }
         };
@@ -3037,6 +3106,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.editingRule = null;
         this.ruleForm = {
           name: '',
+          ruleCategory: '',
           condition: {
             field: 'description',
             operator: 'contains',
@@ -3067,12 +3137,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
           }
 
+          if (!this.ruleForm.ruleCategory) {
+            showToast('Selecteer een categorie voor deze regel', 'error');
+            return;
+          }
+
           const ruleData = {
             name: this.ruleForm.name.trim(),
+            rule_category: this.ruleForm.ruleCategory,
             condition: { ...this.ruleForm.condition },
-            action: { ...this.ruleForm.action },
-            active: true,
-            appliedCount: 0
+            action: { ...this.ruleForm.action }
           };
 
           if (this.editingRule) {
@@ -3084,7 +3158,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast('Regel bijgewerkt', 'success');
           } else {
             // Create new rule
-            await db.saveDocument('rules', ruleData);
+            await db.saveDocument('rules', {
+              ...ruleData,
+              active: true,
+              appliedCount: 0
+            });
             showToast('Regel toegevoegd', 'success');
           }
 
@@ -3276,6 +3354,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       sanitizeRuleForBackup(rule) {
         return {
           name: rule.name,
+          rule_category: rule.rule_category || '',
           condition: rule.condition,
           action: rule.action,
           active: rule.active !== false,
@@ -3514,6 +3593,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             await db.saveDocument('rules', {
               name: String(rawRule.name).trim(),
+              rule_category: rawRule.rule_category || '',
               condition: rawRule.condition,
               action: rawRule.action,
               active: rawRule.active !== false,
