@@ -379,6 +379,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           type: '',
           period: ''
         },
+        transactionTableSort: {
+          column: 'date',
+          direction: 'desc'
+        },
         selectedTransactions: [],
 
         totalTransactionCount: 0,
@@ -500,8 +504,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           filtered = filtered.filter(t => (t.own_account || '') === this.selectedAccount);
         }
 
-        // Sort by date (newest first)
-        filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+        filtered.sort((a, b) => this.compareTransactionsForTable(a, b));
 
         return filtered;
       },
@@ -963,6 +966,78 @@ document.addEventListener('DOMContentLoaded', async () => {
       goToTransactionTablePage(page) {
         const next = Math.min(Math.max(1, page), this.transactionTablePageCount);
         this.transactionTablePage = next;
+      },
+
+      setTransactionTableSort(column) {
+        if (this.transactionTableSort.column === column) {
+          this.transactionTableSort.direction =
+            this.transactionTableSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          const defaultDesc = ['date', 'amount', 'balance'].includes(column);
+          this.transactionTableSort = {
+            column,
+            direction: defaultDesc ? 'desc' : 'asc'
+          };
+        }
+        this.transactionTablePage = 1;
+      },
+
+      getTransactionTableSortIcon(column) {
+        if (this.transactionTableSort.column !== column) {
+          return 'fas fa-sort text-gray-600 opacity-60';
+        }
+        return this.transactionTableSort.direction === 'asc'
+          ? 'fas fa-sort-up text-primary'
+          : 'fas fa-sort-down text-primary';
+      },
+
+      getTransactionFieldForSort(transaction, column) {
+        switch (column) {
+          case 'date':
+            return transaction.date;
+          case 'name':
+            return transaction.name;
+          case 'description':
+            return transaction.description;
+          case 'ownAccount':
+            return transaction.own_account;
+          case 'account':
+            return transaction.account;
+          case 'category':
+            return transaction.category;
+          case 'amount':
+            return transaction.amount;
+          case 'balance':
+            return transaction.balance;
+          default:
+            return '';
+        }
+      },
+
+      compareTransactionsForTable(a, b) {
+        const { column, direction } = this.transactionTableSort;
+        const mul = direction === 'asc' ? 1 : -1;
+
+        if (column === 'date') {
+          const ta = a.date ? new Date(a.date).getTime() : 0;
+          const tb = b.date ? new Date(b.date).getTime() : 0;
+          return mul * (ta - tb);
+        }
+
+        if (column === 'amount' || column === 'balance') {
+          const va = this.getTransactionFieldForSort(a, column);
+          const vb = this.getTransactionFieldForSort(b, column);
+          const aMissing = va === null || va === undefined || va === '';
+          const bMissing = vb === null || vb === undefined || vb === '';
+          if (aMissing && bMissing) return 0;
+          if (aMissing) return 1;
+          if (bMissing) return -1;
+          return mul * (Number(va) - Number(vb));
+        }
+
+        const sa = String(this.getTransactionFieldForSort(a, column) || '').toLowerCase();
+        const sb = String(this.getTransactionFieldForSort(b, column) || '').toLowerCase();
+        return mul * sa.localeCompare(sb, 'nl', { sensitivity: 'base' });
       },
 
 
