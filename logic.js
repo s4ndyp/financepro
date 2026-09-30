@@ -634,31 +634,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                (this.incomeData?.months?.length === 12 || this.expenseData?.months?.length === 12);
       },
 
-      // Category statistics for insights table
-      categoryStatistics() {
-        return this.getCategoryStatistics();
+      categoryStatisticsExpenses() {
+        return this.getCategoryStatistics('expense');
       },
 
-      categoryStatisticsTotals() {
-        const stats = this.categoryStatistics;
-        const totals = {
-          budget: 0,
-          thisMonth: 0,
-          lastMonth: 0,
-          avgLast12Months: 0,
-          avgLast6Months: 0,
-          avgPreviousYear: 0
-        };
-        for (const category of Object.keys(stats)) {
-          const row = stats[category];
-          totals.budget += Number(this.getCategoryBudget(category)) || 0;
-          totals.thisMonth += row.thisMonth || 0;
-          totals.lastMonth += row.lastMonth || 0;
-          totals.avgLast12Months += row.avgLast12Months || 0;
-          totals.avgLast6Months += row.avgLast6Months || 0;
-          totals.avgPreviousYear += row.avgPreviousYear || 0;
-        }
-        return totals;
+      categoryStatisticsIncome() {
+        return this.getCategoryStatistics('income');
+      },
+
+      categoryStatisticsTableSections() {
+        return [
+          {
+            id: 'expense',
+            title: 'Uitgaven',
+            stats: this.categoryStatisticsExpenses,
+            totals: this.sumCategoryStatisticsTotals(this.categoryStatisticsExpenses)
+          },
+          {
+            id: 'income',
+            title: 'Inkomsten',
+            stats: this.categoryStatisticsIncome,
+            totals: this.sumCategoryStatisticsTotals(this.categoryStatisticsIncome)
+          }
+        ];
       },
 
       csvUpdatableFieldOptions() {
@@ -2438,11 +2436,33 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
       },
 
-      getCategoryStatistics() {
+      sumCategoryStatisticsTotals(stats) {
+        const totals = {
+          budget: 0,
+          thisMonth: 0,
+          lastMonth: 0,
+          avgLast12Months: 0,
+          avgLast6Months: 0,
+          avgPreviousYear: 0
+        };
+        for (const category of Object.keys(stats)) {
+          const row = stats[category];
+          totals.budget += Number(this.getCategoryBudget(category)) || 0;
+          totals.thisMonth += row.thisMonth || 0;
+          totals.lastMonth += row.lastMonth || 0;
+          totals.avgLast12Months += row.avgLast12Months || 0;
+          totals.avgLast6Months += row.avgLast6Months || 0;
+          totals.avgPreviousYear += row.avgPreviousYear || 0;
+        }
+        return totals;
+      },
+
+      getCategoryStatistics(type) {
         const now = new Date();
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
         const previousYear = currentYear - 1;
+        const isExpense = type === 'expense';
 
         // Get all categories from current category list
         const categories = this.categories.map(cat => cat.name).sort();
@@ -2461,16 +2481,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         categories.forEach(category => {
           const categoryTransactions = filteredTransactions.filter(t => t.category === category);
+          const typedTransactions = categoryTransactions.filter(t =>
+            isExpense ? t.amount < 0 : t.amount >= 0
+          );
+          if (typedTransactions.length === 0) {
+            return;
+          }
 
           // Group transactions by month/year
           const monthlyTotals = {};
-          categoryTransactions.forEach(transaction => {
+          typedTransactions.forEach(transaction => {
             const date = new Date(transaction.date);
             const key = `${date.getFullYear()}-${date.getMonth()}`;
             if (!monthlyTotals[key]) {
               monthlyTotals[key] = 0;
             }
-            monthlyTotals[key] += Math.abs(transaction.amount);
+            monthlyTotals[key] += isExpense
+              ? Math.abs(transaction.amount)
+              : transaction.amount;
           });
 
           // Calculate statistics
