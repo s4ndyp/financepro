@@ -685,7 +685,7 @@
                                         </span>
                                     </div>
                                     <p class="text-sm text-gray-400">
-                                        Als {{ rule.condition.field }} {{ rule.condition.operator }} "{{ rule.condition.value }}"
+                                        Als {{ formatRuleConditionText(rule.condition) }}
                                         dan {{ rule.action.type === 'set_category' ? 'stel categorie in op' : 'stel omschrijving in op' }} "{{ rule.action.value }}"
                                     </p>
                                 </div>
@@ -1394,7 +1394,7 @@
 
     <!-- Add/Edit Rule Modal -->
     <div v-if="showRuleModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center backdrop-blur-sm p-4" @click.self="closeRuleModal">
-        <div class="bg-dark_paper w-full max-w-md rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div class="bg-dark_paper w-full max-w-lg rounded-2xl border border-gray-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div class="p-5 border-b border-gray-700 flex justify-between items-center bg-gray-800/50">
                 <h3 class="font-bold text-lg text-white">
                     {{ editingRule ? 'Regel Bewerken' : 'Nieuwe Regel' }}
@@ -1418,29 +1418,55 @@
                 </div>
 
                 <div class="border-t border-gray-700 pt-4">
-                    <h4 class="text-sm font-semibold text-white mb-3">Voorwaarde</h4>
+                    <div class="flex items-center justify-between mb-3">
+                        <h4 class="text-sm font-semibold text-white">Voorwaarden (EN)</h4>
+                        <button type="button" @click="addRuleConditionClause"
+                                class="py-1.5 px-3 text-xs font-semibold rounded-lg bg-primary/20 text-primary hover:bg-primary hover:text-white transition flex items-center gap-1.5">
+                            <i class="fas fa-plus"></i> Voorwaarde
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-3">Alle voorwaarden moeten tegelijk waar zijn (logische EN).</p>
                     <div class="space-y-3">
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Veld</label>
-                            <select v-model="ruleForm.condition.field" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
-                                <option value="description">Omschrijving</option>
-                                <option value="amount">Bedrag</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Operator</label>
-                            <select v-model="ruleForm.condition.operator" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
-                                <option value="contains">bevat</option>
-                                <option value="equals">is gelijk aan</option>
-                                <option value="starts_with">begint met</option>
-                                <option value="greater_than">groter dan</option>
-                                <option value="less_than">kleiner dan</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Waarde</label>
-                            <input v-model="ruleForm.condition.value" type="text" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
-                        </div>
+                        <template v-for="(clause, clauseIndex) in ruleForm.conditionClauses" :key="clauseIndex">
+                            <div v-if="clauseIndex > 0" class="flex items-center gap-2 py-0.5">
+                                <span class="text-xs font-bold uppercase tracking-wide text-primary bg-primary/10 px-2 py-0.5 rounded">En</span>
+                                <div class="flex-1 border-t border-gray-700"></div>
+                            </div>
+                            <div class="bg-dark/60 border border-gray-700 rounded-xl p-3 space-y-3">
+                                <div class="flex items-start gap-2">
+                                    <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Veld</label>
+                                            <select v-model="clause.field" class="w-full bg-dark border border-gray-600 rounded-lg p-2.5 text-sm text-white focus:border-primary outline-none">
+                                                <option value="description">Omschrijving</option>
+                                                <option value="amount">Bedrag</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Operator</label>
+                                            <select v-model="clause.operator" class="w-full bg-dark border border-gray-600 rounded-lg p-2.5 text-sm text-white focus:border-primary outline-none">
+                                                <option value="contains">bevat</option>
+                                                <option value="equals">is gelijk aan</option>
+                                                <option value="starts_with">begint met</option>
+                                                <option value="greater_than">groter dan</option>
+                                                <option value="less_than">kleiner dan</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button v-if="ruleForm.conditionClauses.length > 1" type="button"
+                                            @click="removeRuleConditionClause(clauseIndex)"
+                                            class="mt-6 w-8 h-8 shrink-0 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition flex items-center justify-center"
+                                            title="Voorwaarde verwijderen">
+                                        <i class="fas fa-trash text-xs"></i>
+                                    </button>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Waarde</label>
+                                    <input v-model="clause.value" type="text" placeholder="Zoekterm of bedrag..."
+                                           class="w-full bg-dark border border-gray-600 rounded-lg p-2.5 text-sm text-white focus:border-primary outline-none">
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
@@ -1781,7 +1807,7 @@
 
 </div>
 
-<script src="logic.js"></script>
+<script src="logic.js?v=20260930-rules-and"></script>
 
 </body>
 </html>

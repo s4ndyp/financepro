@@ -22,6 +22,60 @@ function formatDate(dateString) {
   });
 }
 
+function defaultRuleClause() {
+  return { field: 'description', operator: 'contains', value: '' };
+}
+
+/** Ondersteunt legacy enkelvoudige condition én condition.clauses (AND). */
+function normalizeRuleCondition(condition) {
+  if (!condition || typeof condition !== 'object') {
+    return { clauses: [defaultRuleClause()] };
+  }
+  if (Array.isArray(condition.clauses) && condition.clauses.length > 0) {
+    return {
+      clauses: condition.clauses.map(c => ({
+        field: c.field || 'description',
+        operator: c.operator || 'contains',
+        value: c.value != null ? String(c.value) : ''
+      }))
+    };
+  }
+  if (condition.field != null || condition.operator != null || condition.value != null) {
+    return {
+      clauses: [{
+        field: condition.field || 'description',
+        operator: condition.operator || 'contains',
+        value: condition.value != null ? String(condition.value) : ''
+      }]
+    };
+  }
+  return { clauses: [defaultRuleClause()] };
+}
+
+function ruleFieldLabel(field) {
+  if (field === 'amount') return 'bedrag';
+  if (field === 'description') return 'omschrijving';
+  return field;
+}
+
+function ruleOperatorLabel(operator) {
+  const labels = {
+    contains: 'bevat',
+    equals: 'is gelijk aan',
+    starts_with: 'begint met',
+    greater_than: 'groter dan',
+    less_than: 'kleiner dan'
+  };
+  return labels[operator] || operator;
+}
+
+function formatRuleConditionSummary(condition) {
+  const { clauses } = normalizeRuleCondition(condition);
+  return clauses
+    .map(c => `${ruleFieldLabel(c.field)} ${ruleOperatorLabel(c.operator)} "${c.value}"`)
+    .join(' EN ');
+}
+
 /** Lineaire trend (least squares) over maandindex 0..n-1 */
 function computeLinearTrendLine(values) {
   if (!values || values.length === 0) return [];
@@ -275,11 +329,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         ruleForm: {
           name: '',
           ruleCategory: '',
-          condition: {
-            field: 'description',
-            operator: 'contains',
-            value: ''
-          },
+          conditionClauses: [defaultRuleClause()],
           action: {
             type: 'set_category',
             value: ''
@@ -3077,11 +3127,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.ruleForm = {
           name: '',
           ruleCategory: defaultCategory,
-          condition: {
-            field: 'description',
-            operator: 'contains',
-            value: ''
-          },
+          conditionClauses: [defaultRuleClause()],
           action: {
             type: 'set_category',
             value: this.categories.length > 0 ? this.categories[0].name : ''
@@ -3092,13 +3138,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       editRule(rule) {
         this.editingRule = rule;
+        const { clauses } = normalizeRuleCondition(rule.condition);
         this.ruleForm = {
           name: rule.name,
           ruleCategory: rule.rule_category || '',
-          condition: { ...rule.condition },
+          conditionClauses: clauses.map(c => ({ ...c })),
           action: { ...rule.action }
         };
         this.showRuleModal = true;
+      },
+
+      addRuleConditionClause() {
+        this.ruleForm.conditionClauses.push(defaultRuleClause());
+      },
+
+      removeRuleConditionClause(index) {
+        if (this.ruleForm.conditionClauses.length <= 1) return;
+        this.ruleForm.conditionClauses.splice(index, 1);
       },
 
       closeRuleModal() {
@@ -3107,11 +3163,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.ruleForm = {
           name: '',
           ruleCategory: '',
-          condition: {
-            field: 'description',
-            operator: 'contains',
-            value: ''
-          },
+          conditionClauses: [defaultRuleClause()],
           action: {
             type: 'set_category',
             value: ''
@@ -3127,8 +3179,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
           }
 
-          if (!this.ruleForm.condition.value.trim()) {
-            showToast('Voer een voorwaarde waarde in', 'error');
+          const clauses = this.ruleForm.conditionClauses.map(c => ({
+            field: c.field,
+            operator: c.operator,
+            value: String(c.value || '').trim()
+          }));
+          if (clauses.length === 0 || clauses.some(c => !c.value)) {
+            showToast('Vul voor elke voorwaarde een waarde in', 'error');
             return;
           }
 
@@ -3145,7 +3202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           const ruleData = {
             name: this.ruleForm.name.trim(),
             rule_category: this.ruleForm.ruleCategory,
-            condition: { ...this.ruleForm.condition },
+            condition: { clauses },
             action: { ...this.ruleForm.action }
           };
 
@@ -3307,16 +3364,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
 
-      checkRuleCondition(transaction, condition) {
-        const fieldValue = transaction[condition.field];
+      checkSingleRuleClause(transaction, clause) {
+        const fieldValue = transaction[clause.field];
         if (fieldValue == null || fieldValue === '') {
           return false;
         }
 
-        const conditionValue = condition.value.toLowerCase();
+        const conditionValue = String(clause.value).toLowerCase();
         const fieldValueLower = String(fieldValue).toLowerCase();
 
-        switch (condition.operator) {
+        switch (clause.operator) {
           case 'contains':
             return fieldValueLower.includes(conditionValue);
           case 'equals':
@@ -3324,12 +3381,21 @@ document.addEventListener('DOMContentLoaded', async () => {
           case 'starts_with':
             return fieldValueLower.startsWith(conditionValue);
           case 'greater_than':
-            return parseFloat(fieldValue) > parseFloat(condition.value);
+            return parseFloat(fieldValue) > parseFloat(clause.value);
           case 'less_than':
-            return parseFloat(fieldValue) < parseFloat(condition.value);
+            return parseFloat(fieldValue) < parseFloat(clause.value);
           default:
             return false;
         }
+      },
+
+      checkRuleCondition(transaction, condition) {
+        const { clauses } = normalizeRuleCondition(condition);
+        return clauses.every(clause => this.checkSingleRuleClause(transaction, clause));
+      },
+
+      formatRuleConditionText(condition) {
+        return formatRuleConditionSummary(condition);
       },
 
       applyRuleAction(transaction, action) {
