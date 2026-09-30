@@ -26,7 +26,7 @@ function defaultRuleClause() {
   return { field: 'description', operator: 'contains', value: '' };
 }
 
-/** Ondersteunt legacy enkelvoudige condition én condition.clauses (AND). */
+/** Ondersteunt legacy enkelvoudige condition én condition.clauses (OR). */
 function normalizeRuleCondition(condition) {
   if (!condition || typeof condition !== 'object') {
     return { clauses: [defaultRuleClause()] };
@@ -73,7 +73,7 @@ function formatRuleConditionSummary(condition) {
   const { clauses } = normalizeRuleCondition(condition);
   return clauses
     .map(c => `${ruleFieldLabel(c.field)} ${ruleOperatorLabel(c.operator)} "${c.value}"`)
-    .join(' EN ');
+    .join(' OF ');
 }
 
 /** Lineaire trend (least squares) over maandindex 0..n-1 */
@@ -3391,7 +3391,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       checkRuleCondition(transaction, condition) {
         const { clauses } = normalizeRuleCondition(condition);
-        return clauses.every(clause => this.checkSingleRuleClause(transaction, clause));
+        return clauses.some(clause => this.checkSingleRuleClause(transaction, clause));
       },
 
       formatRuleConditionText(condition) {
