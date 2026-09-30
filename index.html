@@ -626,8 +626,48 @@
                     </button>
                 </div>
 
-                <div class="space-y-4">
-                    <div v-for="rule in rules" :key="rule.id"
+                <div class="flex flex-col gap-4 mb-6">
+                    <div>
+                        <p class="text-xs font-bold text-gray-500 uppercase mb-2">Filter op categorie</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button"
+                                    @click="rulesCategoryFilter = ''"
+                                    class="px-3 py-1.5 text-sm rounded-lg border transition font-medium"
+                                    :class="!rulesCategoryFilter ? 'bg-primary text-white border-primary' : 'bg-dark_paper text-gray-300 border-gray-600 hover:border-gray-500'">
+                                Alles
+                            </button>
+                            <button v-for="catName in ruleFilterCategories" :key="catName"
+                                    type="button"
+                                    @click="rulesCategoryFilter = catName"
+                                    class="px-3 py-1.5 text-sm rounded-lg border transition font-medium flex items-center gap-2"
+                                    :class="rulesCategoryFilter === catName ? 'bg-primary text-white border-primary' : 'bg-dark_paper text-gray-300 border-gray-600 hover:border-gray-500'">
+                                <span class="w-2 h-2 rounded-full shrink-0" :style="{ backgroundColor: getRuleCategoryColor(catName) }"></span>
+                                {{ catName }}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <p class="text-xs font-bold text-gray-500 uppercase">Sorteer op</p>
+                        <select v-model="rulesSortBy"
+                                class="bg-dark_paper border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white focus:border-primary outline-none">
+                            <option value="name">Alfabetisch</option>
+                            <option value="appliedCount">Aantal keer toegepast</option>
+                            <option value="created">Aangemaakt (nieuwste eerst)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <p v-if="filteredAndSortedRules.length === 0" class="text-gray-400 text-center py-8">
+                    Geen regels gevonden voor dit filter.
+                </p>
+
+                <div v-for="section in rulesDisplaySections" :key="section.name || 'all-rules'" class="space-y-4 mb-8 last:mb-0">
+                    <div v-if="section.name" class="flex items-center gap-2 pt-2">
+                        <span class="w-3 h-3 rounded-full shrink-0" :style="{ backgroundColor: getRuleCategoryColor(section.name === 'Zonder categorie' ? '' : section.name) }"></span>
+                        <h3 class="text-lg font-semibold text-white">{{ section.name }}</h3>
+                        <span class="text-sm text-gray-500">({{ section.rules.length }})</span>
+                    </div>
+                    <div v-for="rule in section.rules" :key="rule.id"
                          class="bg-dark_paper p-4 rounded-xl border border-gray-700">
                         <div class="flex items-center justify-between mb-3">
                             <div class="flex items-center gap-3">
@@ -636,7 +676,14 @@
                                     <i class="fas fa-robot"></i>
                                 </div>
                                 <div>
-                                    <h3 class="font-semibold text-white">{{ rule.name }}</h3>
+                                    <div class="flex flex-wrap items-center gap-2 mb-0.5">
+                                        <h3 class="font-semibold text-white">{{ rule.name }}</h3>
+                                        <span v-if="rule.rule_category"
+                                              class="text-xs px-2 py-0.5 rounded-full border border-gray-600 text-gray-300 flex items-center gap-1.5">
+                                            <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: getRuleCategoryColor(rule.rule_category) }"></span>
+                                            {{ rule.rule_category }}
+                                        </span>
+                                    </div>
                                     <p class="text-sm text-gray-400">
                                         Als {{ rule.condition.field }} {{ rule.condition.operator }} "{{ rule.condition.value }}"
                                         dan {{ rule.action.type === 'set_category' ? 'stel categorie in op' : 'stel omschrijving in op' }} "{{ rule.action.value }}"
@@ -1359,6 +1406,15 @@
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Regel Naam</label>
                     <input v-model="ruleForm.name" type="text" placeholder="Bijv. Supermarkt regel..." class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Categorie (groep)</label>
+                    <select v-model="ruleForm.ruleCategory" class="w-full bg-dark border border-gray-600 rounded-lg p-3 text-white focus:border-primary outline-none">
+                        <option value="" disabled>Kies een categorie</option>
+                        <option v-for="category in categories" :key="category.id" :value="category.name">{{ category.name }}</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Waaronder deze regel op de regelspagina wordt gegroepeerd en gefilterd.</p>
                 </div>
 
                 <div class="border-t border-gray-700 pt-4">
