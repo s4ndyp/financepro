@@ -2991,6 +2991,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                   category: newCategoryName
                 });
               }
+              if (this.categoryBudgets[oldCategoryName] != null) {
+                this.categoryBudgets[newCategoryName] = this.categoryBudgets[oldCategoryName];
+                delete this.categoryBudgets[oldCategoryName];
+                localStorage.setItem('financepro_category_budgets', JSON.stringify(this.categoryBudgets));
+              }
+              if (this.categoryBudgetDrafts[oldCategoryName] != null) {
+                this.categoryBudgetDrafts[newCategoryName] = this.categoryBudgetDrafts[oldCategoryName];
+                delete this.categoryBudgetDrafts[oldCategoryName];
+              }
             }
 
             await db.saveDocument('categories', {
