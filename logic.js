@@ -639,6 +639,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         return this.getCategoryStatistics();
       },
 
+      categoryStatisticsTotals() {
+        const stats = this.categoryStatistics;
+        const totals = {
+          budget: 0,
+          thisMonth: 0,
+          lastMonth: 0,
+          avgLast12Months: 0,
+          avgLast6Months: 0,
+          avgPreviousYear: 0
+        };
+        for (const category of Object.keys(stats)) {
+          const row = stats[category];
+          totals.budget += Number(this.getCategoryBudget(category)) || 0;
+          totals.thisMonth += row.thisMonth || 0;
+          totals.lastMonth += row.lastMonth || 0;
+          totals.avgLast12Months += row.avgLast12Months || 0;
+          totals.avgLast6Months += row.avgLast6Months || 0;
+          totals.avgPreviousYear += row.avgPreviousYear || 0;
+        }
+        return totals;
+      },
+
       csvUpdatableFieldOptions() {
         return CSV_UPDATABLE_FIELDS;
       },
