@@ -443,7 +443,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         monthlyExpenses: 0,
         monthlyIncome: 0,
         monthlyBalance: 0,
-        recentTransactions: [],
+        dashboardChartRange: '6',
 
         // Insights data
         topSpendingCategories: [],
@@ -659,6 +659,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       categoryStatisticsIncome() {
         return this.getCategoryStatistics('income');
+      },
+
+      dashboardChartRangeOptions() {
+        return [
+          { value: '1', label: '1 maand' },
+          { value: '3', label: '3 maanden' },
+          { value: '6', label: '6 maanden' },
+          { value: '12', label: '12 maanden' },
+          { value: '24', label: '2 jaar' }
+        ];
+      },
+
+      dashboardChartTitleSuffix() {
+        const option = this.dashboardChartRangeOptions.find(o => o.value === this.dashboardChartRange);
+        return option ? option.label : '12 maanden';
       },
 
       categoryStatisticsTableSections() {
@@ -1287,6 +1302,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       // DASHBOARD METHODS
       // ============================================================================
 
+      setDashboardChartRange(range) {
+        this.dashboardChartRange = range;
+        if (this.currentPage === 'dashboard') {
+          this.$nextTick(() => {
+            setTimeout(() => this.renderMonthlyExpensesChart(), 50);
+          });
+        }
+      },
+
       updateDashboardData() {
         const now = new Date();
         const currentMonth = now.getMonth();
@@ -1314,11 +1338,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const sortedTransactions = [...this.transactions].sort((a, b) => new Date(b.date) - new Date(a.date));
         const latestTransaction = sortedTransactions.find(t => t.balance !== null && t.balance !== undefined);
         this.monthlyBalance = latestTransaction ? latestTransaction.balance : 0;
-
-        // Get recent transactions
-        this.recentTransactions = [...this.transactions]
-          .sort((a, b) => new Date(b.date) - new Date(a.date))
-          .slice(0, 5);
 
         // Render dashboard chart if we're on dashboard page
         if (this.currentPage === 'dashboard') {
@@ -2122,13 +2141,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       },
 
+      getDashboardChartMonthCount() {
+        const parsed = parseInt(this.dashboardChartRange, 10);
+        if ([1, 3, 6, 12, 24].includes(parsed)) return parsed;
+        return 12;
+      },
+
       getMonthlyExpensesByCategory() {
-        const last12Months = [];
+        const monthCount = this.getDashboardChartMonthCount();
+        const months = [];
         const now = new Date();
 
-        for (let i = 11; i >= 0; i--) {
+        for (let i = monthCount - 1; i >= 0; i--) {
           const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          last12Months.push({
+          months.push({
             month: date.getMonth(),
             year: date.getFullYear(),
             label: date.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' })
@@ -2137,14 +2163,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const categoryData = {};
         this.categories.forEach(cat => {
-          categoryData[cat.name] = new Array(12).fill(0);
+          categoryData[cat.name] = new Array(monthCount).fill(0);
         });
 
         this.transactions.forEach(transaction => {
           if (transaction.amount >= 0) return; // Skip income
 
           const transactionDate = new Date(transaction.date);
-          const monthIndex = last12Months.findIndex(m =>
+          const monthIndex = months.findIndex(m =>
             m.month === transactionDate.getMonth() && m.year === transactionDate.getFullYear()
           );
 
@@ -2170,7 +2196,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           });
 
         return {
-          labels: last12Months.map(m => m.label),
+          labels: months.map(m => m.label),
           datasets
         };
       },
