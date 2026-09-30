@@ -1419,17 +1419,17 @@
 
                 <div class="border-t border-gray-700 pt-4">
                     <div class="flex items-center justify-between mb-3">
-                        <h4 class="text-sm font-semibold text-white">Voorwaarden (EN)</h4>
+                        <h4 class="text-sm font-semibold text-white">Voorwaarden (OF)</h4>
                         <button type="button" @click="addRuleConditionClause"
                                 class="py-1.5 px-3 text-xs font-semibold rounded-lg bg-primary/20 text-primary hover:bg-primary hover:text-white transition flex items-center gap-1.5">
                             <i class="fas fa-plus"></i> Voorwaarde
                         </button>
                     </div>
-                    <p class="text-xs text-gray-500 mb-3">Alle voorwaarden moeten tegelijk waar zijn (logische EN).</p>
+                    <p class="text-xs text-gray-500 mb-3">Minimaal één voorwaarde moet waar zijn (logische OF).</p>
                     <div class="space-y-3">
                         <template v-for="(clause, clauseIndex) in ruleForm.conditionClauses" :key="clauseIndex">
                             <div v-if="clauseIndex > 0" class="flex items-center gap-2 py-0.5">
-                                <span class="text-xs font-bold uppercase tracking-wide text-primary bg-primary/10 px-2 py-0.5 rounded">En</span>
+                                <span class="text-xs font-bold uppercase tracking-wide text-primary bg-primary/10 px-2 py-0.5 rounded">Of</span>
                                 <div class="flex-1 border-t border-gray-700"></div>
                             </div>
                             <div class="bg-dark/60 border border-gray-700 rounded-xl p-3 space-y-3">
@@ -1807,7 +1807,7 @@
 
 </div>
 
-<script src="logic.js?v=20260930-rules-and"></script>
+<script src="logic.js?v=20260930-rules-or"></script>
 
 </body>
 </html>
