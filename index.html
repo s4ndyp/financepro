@@ -885,7 +885,9 @@
                                 <thead class="bg-gray-800/30">
                                     <tr>
                                         <th class="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase">Categorie</th>
-                                        <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Budget</th>
+                                        <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">
+                                            {{ section.id === 'expense' ? 'Budget uitgaven' : 'Budget inkomsten' }}
+                                        </th>
                                         <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Deze maand</th>
                                         <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Vorige maand</th>
                                         <th class="px-4 py-3 text-right text-xs font-bold text-gray-500 uppercase">Gem. afgelopen jaar</th>
@@ -907,28 +909,29 @@
                                         </td>
                                         <td class="px-4 py-3 text-right">
                                             <input type="number" step="0.01" min="0"
-                                                   :value="getCategoryBudget(category)"
-                                                   @input="setCategoryBudgetDraft(category, $event.target.value)"
-                                                   class="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-right text-white text-sm focus:border-primary outline-none">
+                                                   :value="getCategoryBudget(category, section.id)"
+                                                   @input="setCategoryBudgetDraft(category, $event.target.value, section.id)"
+                                                   class="w-24 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-right text-white text-sm focus:border-primary outline-none"
+                                                   :title="section.id === 'expense' ? 'Budget uitgaven' : 'Budget inkomsten'">
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(stats.thisMonth, getCategoryBudget(category))">
+                                            :class="getAmountColor(stats.thisMonth, getCategoryBudget(category, section.id), section.id)">
                                             €{{ formatAmount(stats.thisMonth) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(stats.lastMonth, getCategoryBudget(category))">
+                                            :class="getAmountColor(stats.lastMonth, getCategoryBudget(category, section.id), section.id)">
                                             €{{ formatAmount(stats.lastMonth) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(stats.avgLast12Months, getCategoryBudget(category))">
+                                            :class="getAmountColor(stats.avgLast12Months, getCategoryBudget(category, section.id), section.id)">
                                             €{{ formatAmount(stats.avgLast12Months) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(stats.avgLast6Months, getCategoryBudget(category))">
+                                            :class="getAmountColor(stats.avgLast6Months, getCategoryBudget(category, section.id), section.id)">
                                             €{{ formatAmount(stats.avgLast6Months) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(stats.avgPreviousYear, getCategoryBudget(category))">
+                                            :class="getAmountColor(stats.avgPreviousYear, getCategoryBudget(category, section.id), section.id)">
                                             €{{ formatAmount(stats.avgPreviousYear) }}
                                         </td>
                                     </tr>
@@ -938,23 +941,23 @@
                                             €{{ formatAmount(section.totals.budget) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(section.totals.thisMonth, section.totals.budget)">
+                                            :class="getAmountColor(section.totals.thisMonth, section.totals.budget, section.id)">
                                             €{{ formatAmount(section.totals.thisMonth) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(section.totals.lastMonth, section.totals.budget)">
+                                            :class="getAmountColor(section.totals.lastMonth, section.totals.budget, section.id)">
                                             €{{ formatAmount(section.totals.lastMonth) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(section.totals.avgLast12Months, section.totals.budget)">
+                                            :class="getAmountColor(section.totals.avgLast12Months, section.totals.budget, section.id)">
                                             €{{ formatAmount(section.totals.avgLast12Months) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(section.totals.avgLast6Months, section.totals.budget)">
+                                            :class="getAmountColor(section.totals.avgLast6Months, section.totals.budget, section.id)">
                                             €{{ formatAmount(section.totals.avgLast6Months) }}
                                         </td>
                                         <td class="px-4 py-3 text-right"
-                                            :class="getAmountColor(section.totals.avgPreviousYear, section.totals.budget)">
+                                            :class="getAmountColor(section.totals.avgPreviousYear, section.totals.budget, section.id)">
                                             €{{ formatAmount(section.totals.avgPreviousYear) }}
                                         </td>
                                     </tr>
@@ -1875,7 +1878,7 @@
 
 </div>
 
-<script src="logic.js?v=20260930-cat-split"></script>
+<script src="logic.js?v=20260930-budget-split"></script>
 
 </body>
 </html>
