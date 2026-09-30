@@ -923,6 +923,29 @@
                                         €{{ formatAmount(stats.avgPreviousYear) }}
                                     </td>
                                 </tr>
+                                <tr class="border-t-2 border-gray-600 bg-gray-800/40 font-semibold">
+                                    <td class="px-4 py-3 text-white">Totaal</td>
+                                    <td class="px-4 py-3 text-right text-white">
+                                        €{{ formatAmount(categoryStatisticsTotals.budget) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right"
+                                        :class="getAmountColor(categoryStatisticsTotals.thisMonth, categoryStatisticsTotals.budget)">
+                                        €{{ formatAmount(categoryStatisticsTotals.thisMonth) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right"
+                                        :class="getAmountColor(categoryStatisticsTotals.lastMonth, categoryStatisticsTotals.budget)">
+                                        €{{ formatAmount(categoryStatisticsTotals.lastMonth) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-white">
+                                        €{{ formatAmount(categoryStatisticsTotals.avgLast12Months) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-white">
+                                        €{{ formatAmount(categoryStatisticsTotals.avgLast6Months) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-right text-white">
+                                        €{{ formatAmount(categoryStatisticsTotals.avgPreviousYear) }}
+                                    </td>
+                                </tr>
                             </tbody>
                         </table>
                     </div>
