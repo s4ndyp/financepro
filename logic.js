@@ -26,6 +26,25 @@ function defaultRuleClause() {
   return { field: 'description', operator: 'contains', value: '' };
 }
 
+function defaultCategoryBudgetPair() {
+  return { expense: 0, income: 0 };
+}
+
+/** Legacy: enkel getal = alleen uitgavenbudget. */
+function normalizeCategoryBudgetValue(value) {
+  if (value == null) return defaultCategoryBudgetPair();
+  if (typeof value === 'number' && !Number.isNaN(value)) {
+    return { expense: value, income: 0 };
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return {
+      expense: Number(value.expense) || 0,
+      income: Number(value.income) || 0
+    };
+  }
+  return defaultCategoryBudgetPair();
+}
+
 /** Ondersteunt legacy enkelvoudige condition én condition.clauses (OR). */
 function normalizeRuleCondition(condition) {
   if (!condition || typeof condition !== 'object') {
@@ -648,13 +667,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             id: 'expense',
             title: 'Uitgaven',
             stats: this.categoryStatisticsExpenses,
-            totals: this.sumCategoryStatisticsTotals(this.categoryStatisticsExpenses)
+            totals: this.sumCategoryStatisticsTotals(this.categoryStatisticsExpenses, 'expense')
           },
           {
             id: 'income',
             title: 'Inkomsten',
             stats: this.categoryStatisticsIncome,
-            totals: this.sumCategoryStatisticsTotals(this.categoryStatisticsIncome)
+            totals: this.sumCategoryStatisticsTotals(this.categoryStatisticsIncome, 'income')
           }
         ];
       },
@@ -2436,7 +2455,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
       },
 
-      sumCategoryStatisticsTotals(stats) {
+      sumCategoryStatisticsTotals(stats, budgetType = 'expense') {
         const totals = {
           budget: 0,
           thisMonth: 0,
@@ -2447,7 +2466,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
         for (const category of Object.keys(stats)) {
           const row = stats[category];
-          totals.budget += Number(this.getCategoryBudget(category)) || 0;
+          totals.budget += Number(this.getCategoryBudget(category, budgetType)) || 0;
           totals.thisMonth += row.thisMonth || 0;
           totals.lastMonth += row.lastMonth || 0;
           totals.avgLast12Months += row.avgLast12Months || 0;
@@ -2941,7 +2960,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           const categoryData = {
             name: this.categoryForm.name.trim(),
             color: this.categoryForm.color,
-            budget: this.editingCategory ? this.editingCategory.budget : 0
+            budget: this.editingCategory ? this.editingCategory.budget : 0,
+            budget_income: this.editingCategory
+              ? (this.editingCategory.budget_income != null ? this.editingCategory.budget_income : 0)
+              : 0
           };
 
           // Check for duplicate names
@@ -2968,6 +2990,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                   ...transaction,
                   category: newCategoryName
                 });
+              }
+              if (this.categoryBudgets[oldCategoryName] != null) {
+                this.categoryBudgets[newCategoryName] = this.categoryBudgets[oldCategoryName];
+                delete this.categoryBudgets[oldCategoryName];
+                localStorage.setItem('financepro_category_budgets', JSON.stringify(this.categoryBudgets));
+              }
+              if (this.categoryBudgetDrafts[oldCategoryName] != null) {
+                this.categoryBudgetDrafts[newCategoryName] = this.categoryBudgetDrafts[oldCategoryName];
+                delete this.categoryBudgetDrafts[oldCategoryName];
               }
             }
 
@@ -3045,47 +3076,74 @@ document.addEventListener('DOMContentLoaded', async () => {
         return category ? category.color : '#6b7280';
       },
 
-      getCategoryBudget(categoryName) {
-        if (Object.prototype.hasOwnProperty.call(this.categoryBudgetDrafts, categoryName)) {
-          return this.categoryBudgetDrafts[categoryName];
-        }
-        return this.categoryBudgets[categoryName] || 0;
+      getCategoryBudgetPair(categoryName) {
+        const source = Object.prototype.hasOwnProperty.call(this.categoryBudgetDrafts, categoryName)
+          ? this.categoryBudgetDrafts[categoryName]
+          : this.categoryBudgets[categoryName];
+        return normalizeCategoryBudgetValue(source);
+      },
+
+      getCategoryBudget(categoryName, budgetType = 'expense') {
+        const pair = this.getCategoryBudgetPair(categoryName);
+        return budgetType === 'income' ? pair.income : pair.expense;
       },
 
       syncCategoryBudgetDrafts() {
         const drafts = {};
         for (const category of this.categories) {
-          drafts[category.name] = this.getCategoryBudget(category.name);
+          drafts[category.name] = this.getCategoryBudgetPair(category.name);
         }
         this.categoryBudgetDrafts = drafts;
       },
 
-      setCategoryBudgetDraft(categoryName, budgetValue) {
+      setCategoryBudgetDraft(categoryName, budgetValue, budgetType = 'expense') {
         const parsed = parseFloat(budgetValue);
+        const value = Number.isNaN(parsed) ? 0 : parsed;
+        const pair = this.getCategoryBudgetPair(categoryName);
+        pair[budgetType === 'income' ? 'income' : 'expense'] = value;
         this.categoryBudgetDrafts = {
           ...this.categoryBudgetDrafts,
-          [categoryName]: Number.isNaN(parsed) ? 0 : parsed
+          [categoryName]: { ...pair }
         };
       },
 
-      updateCategoryBudget(categoryName, budgetValue) {
-        const budget = parseFloat(budgetValue) || 0;
+      updateCategoryBudgetPair(categoryName, pair) {
+        const normalized = normalizeCategoryBudgetValue(pair);
         this.categoryBudgets = {
           ...this.categoryBudgets,
-          [categoryName]: budget
+          [categoryName]: normalized
         };
         localStorage.setItem('financepro_category_budgets', JSON.stringify(this.categoryBudgets));
       },
 
       loadCategoryBudgets() {
         const savedBudgets = JSON.parse(localStorage.getItem('financepro_category_budgets') || '{}');
-        const merged = { ...savedBudgets };
+        const merged = {};
+
+        for (const [name, value] of Object.entries(savedBudgets || {})) {
+          merged[name] = normalizeCategoryBudgetValue(value);
+        }
 
         for (const category of this.categories) {
-          const serverBudget = category.budget != null ? Number(category.budget) : 0;
-          if (!Number.isNaN(serverBudget) && serverBudget > 0 && merged[category.name] == null) {
-            merged[category.name] = serverBudget;
+          const serverExpense = category.budget != null ? Number(category.budget) : 0;
+          const serverIncome = category.budget_income != null ? Number(category.budget_income) : 0;
+          const existing = merged[category.name] || defaultCategoryBudgetPair();
+
+          if (merged[category.name] == null) {
+            merged[category.name] = {
+              expense: Number.isNaN(serverExpense) ? 0 : serverExpense,
+              income: Number.isNaN(serverIncome) ? 0 : serverIncome
+            };
+            continue;
           }
+
+          if (existing.expense === 0 && !Number.isNaN(serverExpense) && serverExpense > 0) {
+            existing.expense = serverExpense;
+          }
+          if (existing.income === 0 && !Number.isNaN(serverIncome) && serverIncome > 0) {
+            existing.income = serverIncome;
+          }
+          merged[category.name] = existing;
         }
 
         this.categoryBudgets = merged;
@@ -3098,19 +3156,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         this.isSavingCategoryBudgets = true;
         try {
           for (const category of this.categories) {
-            const rawBudget = Object.prototype.hasOwnProperty.call(this.categoryBudgetDrafts, category.name)
-              ? this.categoryBudgetDrafts[category.name]
-              : (this.categoryBudgets[category.name] || 0);
-            const budget = parseFloat(rawBudget) || 0;
-            this.updateCategoryBudget(category.name, budget);
+            const pair = this.getCategoryBudgetPair(category.name);
+            this.updateCategoryBudgetPair(category.name, pair);
 
-            const currentBudget = category.budget != null ? Number(category.budget) : 0;
-            if (currentBudget === budget) continue;
+            const expense = pair.expense;
+            const income = pair.income;
+            const currentExpense = category.budget != null ? Number(category.budget) : 0;
+            const currentIncome = category.budget_income != null ? Number(category.budget_income) : 0;
+            if (currentExpense === expense && currentIncome === income) continue;
 
-            await db.saveDocument('categories', {
+            const saved = await db.saveDocument('categories', {
               ...category,
-              budget
+              budget: expense,
+              budget_income: income
             });
+            category.budget = saved.budget;
+            category.budget_income = saved.budget_income;
           }
 
           this.syncCategoryBudgetDrafts();
@@ -3123,9 +3184,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
 
-      getAmountColor(amount, budget) {
+      getAmountColor(amount, budget, flowType = 'expense') {
         if (!budget || budget === 0) return 'text-white';
-        return amount > budget ? 'text-red-400' : 'text-green-400';
+        const over = amount > budget;
+        if (flowType === 'income') {
+          return over ? 'text-green-400' : 'text-red-400';
+        }
+        return over ? 'text-red-400' : 'text-green-400';
       },
 
       // ============================================================================
@@ -3572,9 +3637,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const merged = { ...this.categoryBudgets };
         for (const [name, value] of Object.entries(budgets)) {
           if (!name) continue;
-          const budget = parseFloat(value);
-          if (Number.isNaN(budget) || budget < 0) continue;
-          merged[name] = budget;
+          const normalized = normalizeCategoryBudgetValue(value);
+          if (normalized.expense < 0 || normalized.income < 0) continue;
+          merged[name] = normalized;
           count++;
         }
 
@@ -3588,7 +3653,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         return {
           name: category.name,
           color: category.color || '#6366f1',
-          budget: category.budget != null ? Number(category.budget) : 0
+          budget: category.budget != null ? Number(category.budget) : 0,
+          budget_income: category.budget_income != null ? Number(category.budget_income) : 0
         };
       },
 
@@ -3730,7 +3796,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const created = {
           name: trimmed,
           color: defaults.color || '#6b7280',
-          budget: defaults.budget != null ? Number(defaults.budget) : 0
+          budget: defaults.budget != null ? Number(defaults.budget) : 0,
+          budget_income: defaults.budget_income != null ? Number(defaults.budget_income) : 0
         };
         await db.saveDocument('categories', created);
         this.categories.push(created);
@@ -3763,7 +3830,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const before = this.categories.length;
             await this.ensureCategoryExists(category.name, {
               color: category.color,
-              budget: category.budget
+              budget: category.budget,
+              budget_income: category.budget_income
             });
             if (this.categories.length > before) categoriesCreated++;
           }
