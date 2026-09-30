@@ -666,6 +666,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           { value: '1', label: '1 maand' },
           { value: '3', label: '3 maanden' },
           { value: '6', label: '6 maanden' },
+          { value: '12', label: '12 maanden' },
           { value: '24', label: '2 jaar' }
         ];
       },
@@ -2142,7 +2143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       getDashboardChartMonthCount() {
         const parsed = parseInt(this.dashboardChartRange, 10);
-        if ([1, 3, 6, 24].includes(parsed)) return parsed;
+        if ([1, 3, 6, 12, 24].includes(parsed)) return parsed;
         return 6;
       },
 
